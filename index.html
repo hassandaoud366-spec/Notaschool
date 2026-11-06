@@ -355,7 +355,7 @@ async function boot(){
     viewer=auth.data.user;
     try{ await loadSchoolData(); subscribeSchoolData(); }catch(err){ showGateError('Erreur de chargement : '+(err.message||err)); btn.disabled=false; btn.textContent='Se connecter'; }
   });
-  supabase.auth.onAuthStateChange(function(event, session) {
+supabase.auth.onAuthStateChange(async function(event, session) {
 
     if (event === 'SIGNED_OUT') {
         viewer = null;
