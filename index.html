@@ -355,7 +355,7 @@ async function boot(){
     viewer=auth.data.user;
     try{ await loadSchoolData(); subscribeSchoolData(); }catch(err){ showGateError('Erreur de chargement : '+(err.message||err)); btn.disabled=false; btn.textContent='Se connecter'; }
   });
-supabase.auth.onAuthStateChange(async function(event, session) {
+    supabase.auth.onAuthStateChange(async function(event, session) {
 
     if (event === 'SIGNED_OUT') {
         viewer = null;
@@ -365,39 +365,31 @@ supabase.auth.onAuthStateChange(async function(event, session) {
 
     if (event === 'PASSWORD_RECOVERY') {
 
-        setTimeout(async function() {
+        var newPassword = prompt('Entrez votre nouveau mot de passe :');
 
-            var newPassword = prompt(
-                'Entrez votre nouveau mot de passe (6 caractères minimum) :'
-            );
+        if (!newPassword) {
+            return;
+        }
 
-            if (!newPassword) return;
+        if (newPassword.length < 6) {
+            alert('Le mot de passe doit contenir au moins 6 caractères.');
+            return;
+        }
 
-            if (newPassword.length < 6) {
-                alert('Le mot de passe doit contenir au moins 6 caractères.');
-                return;
-            }
+        const { error } = await supabase.auth.updateUser({
+            password: newPassword
+        });
 
-            const { error } = await supabase.auth.updateUser({
-                password: newPassword
-            });
-
-            if (error) {
-                alert('Erreur : ' + error.message);
-            } else {
-                alert('Mot de passe modifié avec succès !');
-                location.reload();
-            }
-
-        }, 0);
+        if (error) {
+            alert('Erreur : ' + error.message);
+        } else {
+            alert('Mot de passe modifié avec succès !');
+            location.reload();
+        }
     }
-
-});
-
-function onCacheChange() {
-    flashSync('ok', 'Synchronisé');
-    render();
+  });
 }
+function onCacheChange(){ flashSync('ok','Synchronisé'); render(); }
 var syncFlashTimer=null;
 function flashSync(state,label){
   var dot=document.getElementById('syncDot'),lbl=document.getElementById('syncLabel'); if(!dot||!lbl)return;
