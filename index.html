@@ -319,24 +319,88 @@ function applyPayload(p){
   cache.conseil=p.conseil&&typeof p.conseil==='object'?p.conseil:{}; cache.appels=p.appels&&typeof p.appels==='object'?p.appels:{}; markAllLoaded();
 }
 async function loadSchoolData(){
-  var result=await supabase.from('notaschool_data').select('payload').eq('id','main').maybeSingle();
+
+  var result = await supabase
+    .from('notaschool_data')
+    .select('payload')
+    .eq('school_key', 'main')
+    .maybeSingle();
+
   if(result.error) throw result.error;
-  if(result.data) applyPayload(result.data.payload);
-  else {
-    var initial=payloadFromCache();
-    var ins=await supabase.from('notaschool_data').insert({id:'main',payload:initial});
-    if(ins.error && ins.error.code!=='23505') throw ins.error;
-    if(ins.error){ var again=await supabase.from('notaschool_data').select('payload').eq('id','main').single(); if(again.error) throw again.error; applyPayload(again.data.payload); }
+
+  if(result.data){
+
+    applyPayload(result.data.payload);
+
+  } else {
+
+    var initial = payloadFromCache();
+
+    var ins = await supabase
+      .from('notaschool_data')
+      .insert({
+        school_key: 'main',
+        payload: initial
+      });
+
+    if(ins.error){
+
+      if(ins.error.code !== '23505'){
+        throw ins.error;
+      }
+
+      var again = await supabase
+        .from('notaschool_data')
+        .select('payload')
+        .eq('school_key', 'main')
+        .single();
+
+      if(again.error) throw again.error;
+
+      applyPayload(again.data.payload);
+
+    } else {
+
+      applyPayload(initial);
+
+    }
   }
+
   revealShell();
 }
+
+
 function subscribeSchoolData(){
-  if(syncChannel) supabase.removeChannel(syncChannel);
-  syncChannel=supabase.channel('notaschool-live').on('postgres_changes',{event:'UPDATE',schema:'public',table:'notaschool_data',filter:'id=eq.main'},function(msg){
-    if(msg.new && msg.new.payload){ applyPayload(msg.new.payload); flashSync('ok','Synchronisé'); render(); }
-  }).subscribe();
+
+  if(syncChannel){
+    supabase.removeChannel(syncChannel);
+  }
+
+  syncChannel = supabase
+    .channel('notaschool-live')
+    .on(
+      'postgres_changes',
+      {
+        event: '*',
+        schema: 'public',
+        table: 'notaschool_data',
+        filter: 'school_key=eq.main'
+      },
+      function(msg){
+
+        if(msg.new && msg.new.payload){
+
+          applyPayload(msg.new.payload);
+
+          flashSync('ok', 'Synchronisé');
+
+          render();
+        }
+
+      }
+    )
+    .subscribe();
 }
-async function boot(){
   var form=document.getElementById('loginForm');
   if(!SUPABASE_URL || !SUPABASE_ANON_KEY){ showGateError('Configuration manquante : renseignez l’URL du projet et la clé anon/public dans supabase-config.js.'); return; }
   if(!window.supabase || !window.supabase.createClient){ showGateError('Impossible de charger la bibliothèque Supabase. Vérifiez votre connexion Internet.'); return; }
