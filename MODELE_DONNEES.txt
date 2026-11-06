@@ -1,0 +1,30 @@
+STRUCTURE DES DONNÉES NOTASCHOOL
+
+Établissement
+- nom : CEM-Lycée de Bouya
+- téléphone, e-mail, année scolaire, logo, cachet, signature et coordonnées du proviseur : à compléter.
+
+Élève
+- nom
+- prénom
+- sexe : M ou F
+- dateNaissance
+- matricule
+- classeId
+- photo (facultative)
+
+Notes par élève, matière et trimestre
+- valeurs : [Dev1, Dev2, Dev3, Dev4]
+- appreciation
+- moyenne calculée sur les devoirs renseignés, à poids égal.
+
+Liste d'appel par date, classe et élève
+- date
+- classeId
+- eleveId
+- statut : present, absent, retard ou justifie
+- la date de naissance n'est pas affichée dans la liste d'appel.
+
+Bulletins
+- T1 et T2 : même modèle transmis en photo.
+- T3 : modèle distinct à recevoir.

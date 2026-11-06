@@ -1,0 +1,13 @@
+SÉCURITÉ OBLIGATOIRE AVANT MISE EN LIGNE
+
+La demande finale prévoit :
+- comptes créés uniquement par l'administrateur ;
+- identifiant et mot de passe provisoire ;
+- changement obligatoire du mot de passe à la première connexion ;
+- espaces séparés administrateur, enseignant, élève et parent ;
+- autorisations vérifiées côté serveur, pas seulement dans JavaScript ;
+- mots de passe gérés par Supabase Auth, jamais stockés en clair ;
+- politiques RLS restrictives et testées ;
+- Edge Functions pour les opérations privilégiées de création/réinitialisation/désactivation de comptes.
+
+Aucune donnée réelle d'élève ne doit être importée ni publiée avant validation de tous ces points.

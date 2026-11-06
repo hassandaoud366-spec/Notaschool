@@ -1,0 +1,1069 @@
+<title>Notaschool</title>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="supabase-config.js"></script>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,500;9..144,600;9..144,700&family=Public+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap">
+<style>
+/* ---------------------------------------------------------------
+   Layout concept: a document-administration shell — sticky top bar
+   (school identity + trimester switch + live-sync status) above a
+   tab strip; a single content pane renders one register. Bulletin
+   sheets mimic a real paper report card: ruled table, ink-navy
+   header, wax-seal accent. Data lives in a shared store so every
+   signed-in collaborator sees the same classes, notes and bulletins
+   update live.
+   ----------------------------------------------------------------*/
+:root{
+  --bg:#f3efe4;
+  --surface:#fffdf8;
+  --surface-2:#ece6d6;
+  --ink:#24231c;
+  --ink-soft:#6b6454;
+  --line:#d8cfb8;
+  --accent:#1f3b63;
+  --accent-ink:#f6f1e2;
+  --accent-soft:#e4ebf3;
+  --gold:#9c7a2e;
+  --gold-soft:#f1e6c8;
+  --good:#2d6a46;
+  --good-soft:#e2eee3;
+  --warn:#9c5420;
+  --warn-soft:#f3e4d3;
+  --danger:#8f2a2a;
+  --danger-soft:#f4e0e0;
+  --shadow: 0 1px 2px rgba(36,35,28,.06), 0 8px 24px -12px rgba(36,35,28,.18);
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --bg:#15181d; --surface:#1c2027; --surface-2:#242933; --ink:#ece7d9; --ink-soft:#a5a190;
+    --line:#333a46; --accent:#7fa3d6; --accent-ink:#121722; --accent-soft:#232d3d;
+    --gold:#d7b96a; --gold-soft:#332a18; --good:#7fc79a; --good-soft:#1c2c21;
+    --warn:#e0a26a; --warn-soft:#2e2318; --danger:#e08a8a; --danger-soft:#2e1c1c;
+    --shadow: 0 1px 2px rgba(0,0,0,.4), 0 8px 24px -12px rgba(0,0,0,.6);
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"]{
+  --bg:#15181d; --surface:#1c2027; --surface-2:#242933; --ink:#ece7d9; --ink-soft:#a5a190;
+  --line:#333a46; --accent:#7fa3d6; --accent-ink:#121722; --accent-soft:#232d3d;
+  --gold:#d7b96a; --gold-soft:#332a18; --good:#7fc79a; --good-soft:#1c2c21;
+  --warn:#e0a26a; --warn-soft:#2e2318; --danger:#e08a8a; --danger-soft:#2e1c1c;
+  --shadow: 0 1px 2px rgba(0,0,0,.4), 0 8px 24px -12px rgba(0,0,0,.6);
+  color-scheme: dark;
+}
+
+*{box-sizing:border-box}
+html,body{height:100%}
+body{
+  margin:0; background:var(--bg); color:var(--ink);
+  font-family:"Public Sans",system-ui,sans-serif; font-size:14px; line-height:1.45;
+  padding-left:max(0px, env(safe-area-inset-left, 0px));
+  padding-right:max(0px, env(safe-area-inset-right, 0px));
+}
+h1,h2,h3,.display{font-family:"Fraunces",Georgia,serif; text-wrap:balance}
+.mono, input.mono, .tabnum{font-family:"IBM Plex Mono",ui-monospace,monospace; font-variant-numeric:tabular-nums}
+a{color:var(--accent)}
+button{font:inherit}
+::selection{background:var(--gold-soft)}
+[hidden]{display:none !important}
+
+/* ---------- App shell ---------- */
+.app{min-height:100%; display:flex; flex-direction:column}
+.topbar{position:sticky; top:env(safe-area-inset-top, 0px); z-index:20; background:var(--accent); color:var(--accent-ink); border-bottom:1px solid var(--line)}
+body::before{content:""; position:fixed; inset:0 0 auto; height:env(safe-area-inset-top,0px); z-index:21; background:var(--accent)}
+.topbar-inner{max-width:1180px; margin:0 auto; padding-block:14px; padding-left:max(16px, env(safe-area-inset-left, 0px)); padding-right:max(16px, env(safe-area-inset-right, 0px)); display:flex; align-items:center; gap:16px; flex-wrap:wrap}
+.brand{display:flex; align-items:center; gap:10px; min-width:0}
+.brand-mark{width:34px; height:34px; border-radius:8px; flex:none; background:var(--gold-soft); color:var(--accent); display:flex; align-items:center; justify-content:center}
+.brand-text{min-width:0}
+.brand-text .t1{font-family:"Fraunces",serif; font-weight:600; font-size:16.5px; line-height:1.1}
+.brand-text .t2{font-size:11.5px; opacity:.78; letter-spacing:.02em; overflow:hidden; text-overflow:ellipsis; white-space:nowrap}
+.spacer{flex:1}
+.sync-pill{display:flex; align-items:center; gap:6px; font-size:11.5px; font-weight:600; padding:5px 10px; border-radius:999px; background:rgba(255,255,255,.12); flex:none; white-space:nowrap}
+.sync-dot{width:7px; height:7px; border-radius:50%; background:#8fd99f; flex:none}
+.sync-dot.busy{background:#e0c25f; animation:pulse 1.1s infinite ease-in-out}
+.sync-dot.off{background:#e08a8a}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.35}}
+.me-chip{display:flex; align-items:center; gap:6px; background:rgba(255,255,255,.12); border-radius:999px; padding:3px 10px 3px 3px; font-size:11.5px; font-weight:600; flex:none}
+.me-chip img{width:20px; height:20px; border-radius:50%; display:block}
+.term-switch{display:flex; align-items:center; gap:8px; background:rgba(255,255,255,.12); border-radius:999px; padding:4px; flex:none}
+.term-switch button{border:none; background:transparent; color:var(--accent-ink); opacity:.65; padding:6px 12px; border-radius:999px; cursor:pointer; font-weight:600; font-size:12.5px}
+.term-switch button[aria-pressed="true"]{background:var(--surface); color:var(--accent); opacity:1}
+
+.tabs{display:flex; gap:4px; overflow-x:auto; scrollbar-width:none; max-width:1180px; margin:0 auto; width:100%; padding-left:max(16px, env(safe-area-inset-left, 0px)); padding-right:max(16px, env(safe-area-inset-right, 0px))}
+.tabs::-webkit-scrollbar{display:none}
+.tab-btn{flex:none; display:flex; align-items:center; gap:7px; border:none; background:transparent; color:var(--accent-ink); opacity:.72; padding:10px 12px; cursor:pointer; font-size:13px; font-weight:600; border-bottom:2px solid transparent; white-space:nowrap}
+.tab-btn svg{width:15px; height:15px; flex:none}
+.tab-btn[aria-current="true"]{opacity:1; border-bottom-color:var(--gold)}
+.tab-btn:hover{opacity:1}
+
+main{flex:1; width:100%}
+.content-wrap{max-width:1180px; margin:0 auto; padding-left:max(16px, env(safe-area-inset-left, 0px)); padding-right:max(16px, env(safe-area-inset-right, 0px)); padding-block:22px 48px}
+
+.view-head{display:flex; align-items:flex-end; justify-content:space-between; gap:14px; flex-wrap:wrap; margin-bottom:18px}
+.view-head h1{font-size:22px; margin:0 0 4px}
+.view-head p{margin:0; color:var(--ink-soft); font-size:13px; max-width:60ch}
+
+.panel{background:var(--surface); border:1px solid var(--line); border-radius:12px; box-shadow:var(--shadow); padding:18px; margin-bottom:18px}
+.panel > h2{font-size:15px; margin:0 0 14px; display:flex; align-items:center; gap:8px}
+.panel > h2 .count{font-family:"Public Sans",sans-serif; font-weight:700; font-size:11px; color:var(--accent); background:var(--accent-soft); border-radius:999px; padding:2px 8px}
+
+.field-grid{display:grid; grid-template-columns:repeat(auto-fit, minmax(190px,1fr)); gap:12px}
+.field{display:flex; flex-direction:column; gap:5px; min-width:0}
+.field label{font-size:11.5px; font-weight:600; color:var(--ink-soft); text-transform:uppercase; letter-spacing:.04em}
+.field input[type=text], .field input[type=number], .field input[type=date], .field input[type=email], .field input[type=tel], .field select, .field textarea{
+  border:1px solid var(--line); background:var(--bg); color:var(--ink); border-radius:8px; padding:8px 10px; font-size:13.5px; font-family:inherit; min-width:0;
+}
+.field textarea{resize:vertical; min-height:64px}
+.field input:focus, .field select:focus, .field textarea:focus, button:focus-visible, a:focus-visible{outline:2px solid var(--accent); outline-offset:1px}
+input:disabled, select:disabled, textarea:disabled, button:disabled{opacity:.55; cursor:not-allowed}
+
+.btn{display:inline-flex; align-items:center; gap:6px; cursor:pointer; border:1px solid var(--line); background:var(--surface); color:var(--ink); border-radius:8px; padding:8px 13px; font-size:13px; font-weight:600}
+.btn:hover{border-color:var(--accent)}
+.btn-primary{background:var(--accent); color:var(--accent-ink); border-color:var(--accent)}
+.btn-primary:hover{filter:brightness(1.06)}
+.btn-ghost{border-color:transparent; background:transparent}
+.btn-danger{color:var(--danger)}
+.btn-danger:hover{border-color:var(--danger)}
+.btn-sm{padding:5px 10px; font-size:12px}
+.btn svg{width:14px; height:14px}
+.row{display:flex; gap:8px; align-items:center; flex-wrap:wrap}
+
+.table-wrap{overflow-x:auto; border:1px solid var(--line); border-radius:10px}
+table{width:100%; border-collapse:collapse; font-size:13px; min-width:560px}
+thead th{text-align:left; font-size:11px; text-transform:uppercase; letter-spacing:.04em; color:var(--ink-soft); background:var(--surface-2); padding:9px 10px; border-bottom:1px solid var(--line); white-space:nowrap}
+tbody td{padding:8px 10px; border-bottom:1px solid var(--line); vertical-align:middle}
+tbody tr:last-child td{border-bottom:none}
+tbody tr:hover{background:var(--surface-2)}
+td input[type=text], td input[type=date], td input[type=number], td select{border:1px solid var(--line); background:var(--bg); color:var(--ink); border-radius:6px; padding:6px 8px; font-size:13px; width:100%; min-width:90px}
+.thumb{width:32px; height:32px; border-radius:7px; object-fit:cover; border:1px solid var(--line); background:var(--surface-2); flex:none}
+.thumb-ph{width:32px; height:32px; border-radius:7px; background:var(--surface-2); display:flex; align-items:center; justify-content:center; color:var(--ink-soft); flex:none}
+.pill{display:inline-flex; align-items:center; gap:5px; padding:2px 9px; border-radius:999px; font-size:11.5px; font-weight:700}
+.pill-good{background:var(--good-soft); color:var(--good)}
+.pill-warn{background:var(--warn-soft); color:var(--warn)}
+.pill-gold{background:var(--gold-soft); color:var(--gold)}
+.pill-muted{background:var(--surface-2); color:var(--ink-soft)}
+.empty{padding:28px 12px; text-align:center; color:var(--ink-soft); font-size:13px}
+.hint{font-size:12px; color:var(--ink-soft); margin-top:8px}
+.confirm-box{display:flex; gap:8px; align-items:center; background:var(--danger-soft); border-radius:8px; padding:6px 8px}
+.confirm-box span{font-size:12px; color:var(--danger)}
+
+.logo-row{display:flex; align-items:center; gap:14px; flex-wrap:wrap}
+.logo-preview{width:64px; height:64px; border-radius:10px; border:1px solid var(--line); object-fit:cover; background:var(--surface-2)}
+.logo-ph{width:64px; height:64px; border-radius:10px; border:1px dashed var(--line); display:flex; align-items:center; justify-content:center; color:var(--ink-soft)}
+
+textarea.code{width:100%; min-height:110px; font-family:"IBM Plex Mono",monospace; font-size:11.5px; border:1px solid var(--line); background:var(--bg); color:var(--ink); border-radius:8px; padding:10px}
+
+.banner{display:flex; gap:10px; align-items:center; border-radius:10px; padding:10px 14px; font-size:12.5px; margin-bottom:16px}
+.banner svg{width:16px; height:16px; flex:none}
+.banner-info{background:var(--accent-soft); color:var(--accent)}
+.banner-warn{background:var(--warn-soft); color:var(--warn)}
+
+/* ---------- Access / loading gate ---------- */
+.gate{min-height:100%; display:flex; align-items:center; justify-content:center; padding:32px max(16px, env(safe-area-inset-left,0px))}
+.gate-card{max-width:420px; width:100%; background:var(--surface); border:1px solid var(--line); border-radius:14px; box-shadow:var(--shadow); padding:28px; text-align:center}
+.gate-icon{width:52px; height:52px; border-radius:50%; background:var(--accent-soft); color:var(--accent); display:flex; align-items:center; justify-content:center; margin:0 auto 16px}
+.gate-card h1{font-size:19px; margin:0 0 8px}
+.gate-card p{color:var(--ink-soft); font-size:13px; margin:0 0 6px; line-height:1.6}
+.spin{width:28px; height:28px; border-radius:50%; border:3px solid var(--line); border-top-color:var(--accent); animation:spin 0.8s linear infinite; margin:0 auto 16px}
+@keyframes spin{to{transform:rotate(360deg)}}
+
+/* ---------- Bulletin sheet ---------- */
+.print-hint{display:flex; gap:10px; align-items:center; background:var(--accent-soft); color:var(--accent); border-radius:10px; padding:10px 14px; font-size:12.5px; margin-bottom:16px}
+.print-hint svg{width:16px; height:16px; flex:none}
+.sheet{background:var(--surface); border:1px solid var(--line); border-radius:4px; box-shadow:var(--shadow); padding:28px; margin-bottom:28px; max-width:900px}
+.sheet-head{display:grid; grid-template-columns:auto 1fr auto; gap:18px; align-items:start; border-bottom:2px solid var(--accent); padding-bottom:14px; margin-bottom:14px}
+.sheet-crest{width:54px; height:54px; border-radius:10px; object-fit:cover; border:1px solid var(--line)}
+.sheet-crest-ph{width:54px; height:54px; border-radius:10px; background:var(--accent-soft); color:var(--accent); display:flex; align-items:center; justify-content:center}
+.sheet-school .nom{font-family:"Fraunces",serif; font-weight:600; font-size:18px}
+.sheet-school .meta{font-size:11.5px; color:var(--ink-soft); line-height:1.6}
+.sheet-doc{text-align:right; min-width:150px}
+.sheet-doc .titre{font-family:"Fraunces",serif; font-weight:600; font-size:15px; color:var(--accent)}
+.sheet-doc .date{font-size:11.5px; color:var(--ink-soft)}
+.sheet-id{display:grid; grid-template-columns:1fr auto; gap:16px; margin-bottom:16px}
+.sheet-id dl{display:grid; grid-template-columns:auto 1fr; gap:3px 10px; margin:0; font-size:12.5px}
+.sheet-id dt{color:var(--ink-soft)}
+.sheet-id dd{margin:0; font-weight:600}
+.sheet-id dd.nom-eleve{font-size:15px; font-family:"Fraunces",serif; font-weight:600}
+.sheet-photo{width:70px; height:88px; object-fit:cover; border:1px solid var(--line); border-radius:4px}
+.sheet-photo-ph{width:70px; height:88px; border:1px dashed var(--line); border-radius:4px; display:flex; align-items:center; justify-content:center; color:var(--ink-soft)}
+.sheet table{min-width:0; font-size:12.5px}
+.sheet thead th{background:var(--accent-soft); color:var(--accent); border-bottom:1px solid var(--accent)}
+.sheet td, .sheet th{border:1px solid var(--line)}
+.sheet tbody td.num{text-align:center}
+.sheet tfoot td{font-weight:700; background:var(--gold-soft)}
+.sheet .matiere-nom{font-weight:700; text-transform:uppercase; font-size:11.5px}
+.sheet .ens-nom{color:var(--ink-soft); font-size:11.5px}
+.sheet-conseil{display:grid; grid-template-columns:1.4fr 1fr; gap:0; margin-top:16px; border:1px solid var(--line); border-radius:4px; overflow:hidden; font-size:12.5px}
+.sheet-conseil > div{padding:12px}
+.sheet-conseil .left{border-right:1px solid var(--line)}
+.sheet-conseil .ttl{font-weight:700; text-transform:uppercase; font-size:11px; letter-spacing:.03em; color:var(--ink-soft); margin-bottom:8px}
+.cline{display:flex; justify-content:space-between; gap:10px; padding:5px 0; border-top:1px solid var(--line)}
+.cline:first-of-type{border-top:none}
+.cline input, .cline textarea{border:1px solid var(--line); background:var(--bg); border-radius:6px; padding:4px 7px; font-size:12px; font-family:inherit; width:62%}
+.seal{width:72px; height:72px; border-radius:50%; border:2px solid var(--accent); color:var(--accent); display:flex; align-items:center; justify-content:center; text-align:center; font-size:9px; font-weight:700; text-transform:uppercase; letter-spacing:.02em; margin:0 auto 8px; opacity:.6; transform:rotate(-8deg)}
+.sig-row{display:flex; justify-content:center}
+
+@media print{
+  .topbar, .tabs, .print-hint, .view-head, .panel, .banner{display:none !important}
+  body{background:#fff}
+  main, .content-wrap{padding:0; margin:0; max-width:none}
+  .sheet{box-shadow:none; border:none; page-break-after:always; margin:0; max-width:none}
+}
+@media (max-width:640px){
+  .sheet{padding:18px}
+  .sheet-head{grid-template-columns:1fr; text-align:left}
+  .sheet-doc{text-align:left}
+  .sheet-id{grid-template-columns:1fr}
+  .sheet-conseil{grid-template-columns:1fr}
+  .sheet-conseil .left{border-right:none; border-bottom:1px solid var(--line)}
+}
+</style>
+
+<div class="app" id="app">
+  <div class="gate" id="gate">
+    <div class="gate-card">
+      <div class="spin" id="gateSpin"></div>
+      <h1 id="gateTitle">Connexion à Notaschool</h1>
+      <p id="gateText">Connectez-vous avec votre compte scolaire Supabase.</p>
+      <form id="loginForm" style="text-align:left;margin-top:18px">
+        <div class="field"><label>Adresse e-mail</label><input id="loginEmail" type="email" autocomplete="username" required placeholder="nom@ecole.dj"></div>
+        <div class="field" style="margin-top:10px"><label>Mot de passe</label><input id="loginPassword" type="password" autocomplete="current-password" required placeholder="Mot de passe"></div>
+        <button class="btn btn-primary" id="loginButton" type="submit" style="width:100%;justify-content:center;margin-top:14px">Se connecter</button>
+      </form>
+    </div>
+  </div>
+
+  <div class="app" id="shell" hidden>
+    <div class="topbar">
+      <div class="topbar-inner">
+        <div class="brand">
+          <div class="brand-mark">
+            <svg viewBox="0 0 24 24" fill="none" width="19" height="19"><path d="M12 3 3 7l9 4 9-4-9-4Z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/><path d="M6 10.5V16c0 1.5 2.7 3 6 3s6-1.5 6-3v-5.5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/><path d="M21 7v6" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
+          </div>
+          <div class="brand-text">
+            <div class="t1" id="brandNom">Notaschool</div>
+            <div class="t2" id="brandAnnee">Bulletins scolaires partagés</div>
+          </div>
+        </div>
+        <div class="spacer"></div>
+        <div class="me-chip" id="meChip" hidden></div>
+        <div class="sync-pill" id="syncPill"><span class="sync-dot" id="syncDot"></span><span id="syncLabel">Synchronisé</span></div>
+        <div class="term-switch" id="termSwitch" role="group" aria-label="Trimestre">
+          <button type="button" data-term="1">Trim. 1</button>
+          <button type="button" data-term="2">Trim. 2</button>
+          <button type="button" data-term="3">Trim. 3</button>
+        </div>
+      </div>
+      <nav class="tabs" id="tabs" aria-label="Sections"></nav>
+    </div>
+    <main><div class="content-wrap" id="content"></div></main>
+  </div>
+</div>
+
+<script>
+(function(){
+"use strict";
+
+/* ================= Supabase connection ================= */
+var supabase = null, viewer = null, canWriteData = true, readOnlyForced = false;
+var syncChannel = null, saveQueue = Promise.resolve();
+var SUPABASE_URL = window.NOTASCHOOL_SUPABASE_URL || "";
+var SUPABASE_ANON_KEY = window.NOTASCHOOL_SUPABASE_ANON_KEY || "";
+
+/* local-only UI preferences (per browser, never shared) */
+var LS_KEY = "notaschool_ui_prefs_v1";
+function loadUi(){
+  var d = { tab:"etablissement", trimestre:1, classeFiltre:"", notesMatiere:"", bulletinMode:"un", bulletinEleve:"", deleteArmed:"" };
+  try{ var raw = localStorage.getItem(LS_KEY); if(raw) return Object.assign(d, JSON.parse(raw)); }catch(e){}
+  return d;
+}
+function saveUi(){ try{ localStorage.setItem(LS_KEY, JSON.stringify(ui)); }catch(e){} }
+var ui = loadUi();
+
+/* ================= shared cache, fed by live snapshots ================= */
+var cache = {
+  school: { nom:"CEM-Lycée de Bouya", telephone:"", email:"", anneeScolaire:"" },
+  classes: [], eleves: [], matieres: [],
+  notes: {},    // key eleveId_matiereId_trimestre -> {valeurs, appreciation, eleveId, matiereId, trimestre}
+  conseil: {},  // key eleveId_trimestre -> {absences, appreciationGlobale, date, eleveId, trimestre}
+  appels: {},   // key date_classe_eleve -> {date, classeId, eleveId, statut}
+  loaded: { school:false, classes:false, eleves:false, matieres:false, notes:false, conseil:false }
+};
+
+function uid(){ return Date.now().toString(36) + Math.random().toString(36).slice(2,8); }
+function esc(s){ return (s==null?"":String(s)).replace(/[&<>"']/g, function(c){ return {"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]; }); }
+function todayISO(){ return new Date().toISOString().slice(0,10); }
+function frDate(iso){ if(!iso) return "—"; var p = iso.split("-"); if(p.length!==3) return iso; return p[2]+"-"+p[1]+"-"+p[0]; }
+
+/* ================= boot and authentication ================= */
+function allCoreLoaded(){ return cache.loaded.school && cache.loaded.classes && cache.loaded.eleves && cache.loaded.matieres && cache.loaded.notes && cache.loaded.conseil; }
+var firstPaintDone = false;
+function showGateError(msg){
+  var spin=document.getElementById('gateSpin'); if(spin) spin.style.display='none';
+  document.getElementById('gateTitle').textContent='Connexion impossible';
+  document.getElementById('gateText').textContent=msg;
+}
+function revealShell(){
+  if(firstPaintDone) return; firstPaintDone=true;
+  document.getElementById('gate').hidden=true; document.getElementById('shell').hidden=false;
+  renderMeChip(); render();
+}
+function markAllLoaded(){ cache.loaded={school:true,classes:true,eleves:true,matieres:true,notes:true,conseil:true}; }
+function payloadFromCache(){ return {school:cache.school,classes:cache.classes,eleves:cache.eleves,matieres:cache.matieres,notes:cache.notes,conseil:cache.conseil,appels:cache.appels}; }
+function applyPayload(p){
+  p=p||{}; cache.school=Object.assign({nom:'CEM-Lycée de Bouya',telephone:'',email:'',anneeScolaire:'',logo:''},p.school||{});
+  cache.classes=Array.isArray(p.classes)?p.classes:[]; cache.eleves=Array.isArray(p.eleves)?p.eleves:[];
+  cache.matieres=Array.isArray(p.matieres)?p.matieres:[]; cache.notes=p.notes&&typeof p.notes==='object'?p.notes:{};
+  cache.conseil=p.conseil&&typeof p.conseil==='object'?p.conseil:{}; cache.appels=p.appels&&typeof p.appels==='object'?p.appels:{}; markAllLoaded();
+}
+async function loadSchoolData(){
+  var result=await supabase.from('notaschool_data').select('payload').eq('id','main').maybeSingle();
+  if(result.error) throw result.error;
+  if(result.data) applyPayload(result.data.payload);
+  else {
+    var initial=payloadFromCache();
+    var ins=await supabase.from('notaschool_data').insert({id:'main',payload:initial});
+    if(ins.error && ins.error.code!=='23505') throw ins.error;
+    if(ins.error){ var again=await supabase.from('notaschool_data').select('payload').eq('id','main').single(); if(again.error) throw again.error; applyPayload(again.data.payload); }
+  }
+  revealShell();
+}
+function subscribeSchoolData(){
+  if(syncChannel) supabase.removeChannel(syncChannel);
+  syncChannel=supabase.channel('notaschool-live').on('postgres_changes',{event:'UPDATE',schema:'public',table:'notaschool_data',filter:'id=eq.main'},function(msg){
+    if(msg.new && msg.new.payload){ applyPayload(msg.new.payload); flashSync('ok','Synchronisé'); render(); }
+  }).subscribe();
+}
+async function boot(){
+  var form=document.getElementById('loginForm');
+  if(!SUPABASE_URL || !SUPABASE_ANON_KEY){ showGateError('Configuration manquante : renseignez l’URL du projet et la clé anon/public dans supabase-config.js.'); return; }
+  if(!window.supabase || !window.supabase.createClient){ showGateError('Impossible de charger la bibliothèque Supabase. Vérifiez votre connexion Internet.'); return; }
+  supabase=window.supabase.createClient(SUPABASE_URL,SUPABASE_ANON_KEY);
+  var sessionResult=await supabase.auth.getSession();
+  if(sessionResult.error){ showGateError(sessionResult.error.message); return; }
+  if(sessionResult.data.session){
+    viewer=sessionResult.data.session.user;
+    try{ await loadSchoolData(); subscribeSchoolData(); }catch(e){ showGateError('Erreur de chargement des données : '+(e.message||e)); }
+  }
+  form.addEventListener('submit',async function(e){
+    e.preventDefault(); var btn=document.getElementById('loginButton'); btn.disabled=true; btn.textContent='Connexion…';
+    var email=document.getElementById('loginEmail').value.trim(), password=document.getElementById('loginPassword').value;
+    var auth=await supabase.auth.signInWithPassword({email:email,password:password});
+    if(auth.error){ showGateError('Échec de connexion : '+auth.error.message); btn.disabled=false; btn.textContent='Se connecter'; return; }
+    viewer=auth.data.user;
+    try{ await loadSchoolData(); subscribeSchoolData(); }catch(err){ showGateError('Erreur de chargement : '+(err.message||err)); btn.disabled=false; btn.textContent='Se connecter'; }
+  });
+  supabase.auth.onAuthStateChange(function(event,session){
+    if(event==='SIGNED_OUT'){ viewer=null; location.reload(); }
+  });
+}
+function onCacheChange(){ flashSync('ok','Synchronisé'); render(); }
+var syncFlashTimer=null;
+function flashSync(state,label){
+  var dot=document.getElementById('syncDot'),lbl=document.getElementById('syncLabel'); if(!dot||!lbl)return;
+  dot.className='sync-dot'+(state==='busy'?' busy':state==='off'?' off':''); lbl.textContent=label;
+  clearTimeout(syncFlashTimer); if(state!=='busy') syncFlashTimer=setTimeout(function(){dot.className='sync-dot';lbl.textContent='Synchronisé';},1800);
+}
+function writeGuardOk(){ return !readOnlyForced && !!viewer; }
+function handleWriteError(err){ flashSync('off','Erreur de synchronisation'); console.error('Supabase write error:',err); alert('Enregistrement impossible : '+(err&&err.message?err.message:'vérifiez les droits Supabase et votre connexion.')); }
+function persistPayload(){
+  if(!supabase || !viewer) return Promise.reject(new Error('Utilisateur non connecté'));
+  var payload=payloadFromCache(); flashSync('busy','Enregistrement…');
+  saveQueue=saveQueue.then(async function(){
+    var res=await supabase.from('notaschool_data').upsert({id:'main',payload:payload,updated_at:new Date().toISOString()},{onConflict:'id'});
+    if(res.error) throw res.error; flashSync('ok','Synchronisé');
+  }).catch(function(err){handleWriteError(err);});
+  return saveQueue;
+}
+function dbSet(path,id,data){
+  if(path==='config/ecole'){cache.school=data;return persistPayload();}
+  var target=cache[path]; if(Array.isArray(target)){var i=target.findIndex(function(x){return x.id===id;});var row=Object.assign({id:id},data);if(i>=0)target[i]=row;else target.push(row);}
+  else if(target && typeof target==='object') target[id]=data;
+  return persistPayload();
+}
+function dbUpdate(path,id,patch){
+  var target=cache[path]; if(Array.isArray(target)){var row=target.find(function(x){return x.id===id;});if(row)Object.assign(row,patch);}
+  else if(target && target[id]) Object.assign(target[id],patch);
+  return persistPayload();
+}
+function dbDelete(path,id){
+  var target=cache[path]; if(Array.isArray(target)) cache[path]=target.filter(function(x){return x.id!==id;});
+  else if(target && typeof target==='object') delete target[id];
+  return persistPayload();
+}
+function dbSetDoc(path,data){ if(path==='config/ecole') cache.school=data; return persistPayload(); }
+
+/* ================= domain helpers (read from cache) ================= */
+function clasesTriees(){ return cache.classes.slice().sort(function(a,b){ return (a.nom||'').localeCompare(b.nom||'','fr'); }); }
+function elevesDe(classeId){ return cache.eleves.filter(function(e){ return e.classeId===classeId; }).sort(function(a,b){ return ((a.nom||'')+(a.prenom||'')).localeCompare((b.nom||'')+(b.prenom||''),'fr'); }); }
+function matieresDe(classeId){ return cache.matieres.filter(function(m){ return m.classeId===classeId; }).sort(function(a,b){ return (a.nom||'').localeCompare(b.nom||'','fr'); }); }
+
+function noteKey(eleveId, matiereId, trimestre){ return eleveId+"_"+matiereId+"_"+trimestre; }
+function getNoteEntry(eleveId, matiereId, trimestre){ return cache.notes[noteKey(eleveId,matiereId,trimestre)] || { valeurs:[], appreciation:"" }; }
+function setNoteEntry(eleveId, matiereId, trimestre, patch){
+  if(!writeGuardOk()) return;
+  var key = noteKey(eleveId, matiereId, trimestre);
+  var cur = cache.notes[key] || { valeurs:[], appreciation:"" };
+  var merged = Object.assign({}, cur, patch, { eleveId:eleveId, matiereId:matiereId, trimestre:trimestre, updatedAt: Date.now(), updatedBy: viewer && viewer.id || null });
+  cache.notes[key] = merged;
+  render();
+  dbSet("notes", key, merged);
+}
+
+function conseilKey(eleveId, trimestre){ return eleveId+"_"+trimestre; }
+function getConseil(eleveId, trimestre){ return cache.conseil[conseilKey(eleveId,trimestre)] || { absences:"0 heure(s)", appreciationGlobale:"", date:"" }; }
+function setConseil(eleveId, trimestre, patch){
+  if(!writeGuardOk()) return;
+  var key = conseilKey(eleveId, trimestre);
+  var cur = cache.conseil[key] || { absences:"0 heure(s)", appreciationGlobale:"", date:"" };
+  var merged = Object.assign({}, cur, patch, { eleveId:eleveId, trimestre:trimestre, updatedAt: Date.now(), updatedBy: viewer && viewer.id || null });
+  cache.conseil[key] = merged;
+  dbSet("conseil", key, merged);
+}
+
+function moyenne(valeurs){ if(!valeurs || valeurs.length===0) return null; var propres=valeurs.filter(function(v){return v!==null && v!=='' && typeof v==='number' && !isNaN(v);}); if(!propres.length)return null; var sum=propres.reduce(function(a,b){return a+b;},0); return sum/propres.length; }
+function round2(n){ return Math.round(n*100)/100; }
+function fmt(n){ return n==null ? "—" : round2(n).toFixed(2); }
+
+function suggestAppreciation(m){
+  if(m==null) return "";
+  if(m>=18) return "Excellent travail, félicitations";
+  if(m>=16) return "Résultats très satisfaisants, encouragements";
+  if(m>=14) return "Résultats satisfaisants";
+  if(m>=12) return "Résultats assez satisfaisants";
+  if(m>=10) return "Résultats passables, peut mieux faire";
+  return "Résultats insuffisants, doit fournir davantage d'efforts";
+}
+function appreciationTone(m){ if(m==null) return "muted"; if(m>=16) return "good"; if(m>=10) return "gold"; return "warn"; }
+
+function computeRanks(items){
+  var withVal = items.filter(function(x){ return x.value!=null; }).slice().sort(function(a,b){ return b.value-a.value; });
+  var ranks = {}, prevVal=null, rank=0, seen=0;
+  withVal.forEach(function(v){ seen++; if(v.value!==prevVal){ rank=seen; prevVal=v.value; } ranks[v.id]=rank; });
+  items.forEach(function(x){ if(x.value==null) ranks[x.id]=null; });
+  return ranks;
+}
+function ordinal(n){ return n===1 ? "1er" : n+"e"; }
+
+function statsMatiere(classeId, matiereId, trimestre){
+  var eleves = elevesDe(classeId);
+  var moyennes = {};
+  eleves.forEach(function(e){ moyennes[e.id] = moyenne(getNoteEntry(e.id, matiereId, trimestre).valeurs); });
+  var valides = eleves.map(function(e){ return moyennes[e.id]; }).filter(function(v){ return v!=null; });
+  var moyClasse = valides.length ? valides.reduce(function(a,b){return a+b;},0)/valides.length : null;
+  var ranks = computeRanks(eleves.map(function(e){ return {id:e.id, value:moyennes[e.id]}; }));
+  return { moyennes:moyennes, moyenneClasse:moyClasse, ranks:ranks };
+}
+function statsGenerale(classeId, trimestre){
+  var eleves = elevesDe(classeId), mats = matieresDe(classeId);
+  var generales = {};
+  eleves.forEach(function(e){
+    var vals = [];
+    mats.forEach(function(m){ var moy = moyenne(getNoteEntry(e.id, m.id, trimestre).valeurs); if(moy!=null) vals.push(moy); });
+    generales[e.id] = vals.length ? vals.reduce(function(a,b){return a+b;},0)/vals.length : null;
+  });
+  var valides = eleves.map(function(e){ return generales[e.id]; }).filter(function(v){ return v!=null; });
+  var moyClasseGen = valides.length ? valides.reduce(function(a,b){return a+b;},0)/valides.length : null;
+  var ranks = computeRanks(eleves.map(function(e){ return {id:e.id, value:generales[e.id]}; }));
+  return { generales:generales, moyenneClasse:moyClasseGen, ranks:ranks };
+}
+
+/* ================= images ================= */
+function resizeImage(file, maxW, cb){
+  var reader = new FileReader();
+  reader.onload = function(){
+    var img = new Image();
+    img.onload = function(){
+      var scale = Math.min(1, maxW/img.width);
+      var w = Math.round(img.width*scale), h = Math.round(img.height*scale);
+      var canvas = document.createElement('canvas'); canvas.width=w; canvas.height=h;
+      var ctx = canvas.getContext('2d'); ctx.drawImage(img,0,0,w,h);
+      try{ cb(canvas.toDataURL('image/jpeg',0.78)); }catch(e){ cb(""); }
+    };
+    img.onerror = function(){ cb(""); };
+    img.src = reader.result;
+  };
+  reader.onerror = function(){ cb(""); };
+  reader.readAsDataURL(file);
+}
+
+/* ================= icons / tabs ================= */
+var ICONS = {
+  etablissement:'<svg viewBox="0 0 24 24" fill="none"><path d="M4 21V9l8-5 8 5v12" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/><path d="M9 21v-7h6v7" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></svg>',
+  classes:'<svg viewBox="0 0 24 24" fill="none"><rect x="3" y="4" width="18" height="13" rx="2" stroke="currentColor" stroke-width="1.6"/><path d="M8 21h8M12 17v4" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>',
+  eleves:'<svg viewBox="0 0 24 24" fill="none"><circle cx="9" cy="8" r="3" stroke="currentColor" stroke-width="1.6"/><path d="M3.5 20c.8-3.2 3-5 5.5-5s4.7 1.8 5.5 5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/><circle cx="17.5" cy="9" r="2.3" stroke="currentColor" stroke-width="1.6"/><path d="M15.2 20c.5-2.3 1.8-3.8 3.6-4.2" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>',
+  matieres:'<svg viewBox="0 0 24 24" fill="none"><path d="M5 4h11a2 2 0 0 1 2 2v14H7a2 2 0 0 1-2-2V4Z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/><path d="M5 17a2 2 0 0 1 2-2h11" stroke="currentColor" stroke-width="1.6"/></svg>',
+  notes:'<svg viewBox="0 0 24 24" fill="none"><path d="M9 4h9a1 1 0 0 1 1 1v15l-3-2-3 2-3-2-3 2V8" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/><path d="M5 4h4v11H5a1 1 0 0 1-1-1V5a1 1 0 0 1 1-1Z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></svg>',
+  appels:'<svg viewBox="0 0 24 24" fill="none"><path d="M5 4h14v16H5zM8 8h8M8 12h8M8 16h5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>',
+  bulletins:'<svg viewBox="0 0 24 24" fill="none"><path d="M6 3h9l4 4v14H6z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/><path d="M15 3v4h4M9 13h6M9 17h6M9 9h2" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>'
+};
+var TABS = [
+  {id:"etablissement", label:"Établissement"},
+  {id:"classes", label:"Classes"},
+  {id:"eleves", label:"Élèves"},
+  {id:"matieres", label:"Matières"},
+  {id:"notes", label:"Notes"},
+  {id:"appels", label:"Liste d’appel"},
+  {id:"bulletins", label:"Bulletins"}
+];
+
+/* ================= render: shell ================= */
+function renderMeChip(){
+  var chip = document.getElementById('meChip');
+  if(!viewer || !viewer.id){ chip.hidden = true; return; }
+  chip.hidden = false;
+  var name = viewer.name || "Vous";
+  chip.innerHTML = '<img src="'+esc(viewer.avatarUrl || '')+'" alt="" onerror="this.style.display=\'none\'"><span></span>';
+  chip.querySelector('span').textContent = name;
+}
+
+function renderShell(){
+  document.getElementById('brandNom').textContent = cache.school.nom || "Notaschool";
+  document.getElementById('brandAnnee').textContent = cache.school.nom ? ("Année scolaire " + (cache.school.anneeScolaire || "—")) : "Bulletins scolaires partagés";
+  var ts = document.getElementById('termSwitch');
+  ts.querySelectorAll('button').forEach(function(b){ var t = parseInt(b.dataset.term,10); b.setAttribute('aria-pressed', t===ui.trimestre ? "true":"false"); });
+  var tabsEl = document.getElementById('tabs');
+  tabsEl.innerHTML = TABS.map(function(t){
+    return '<button type="button" class="tab-btn" data-tab="'+t.id+'" aria-current="'+(ui.tab===t.id?'true':'false')+'">'+ICONS[t.id]+'<span>'+t.label+'</span></button>';
+  }).join('');
+}
+
+function readOnlyBanner(){
+  if(canWriteData === false || readOnlyForced){
+    return '<div class="banner banner-warn"><svg viewBox="0 0 24 24" fill="none"><path d="M12 9v4m0 4h.01M10.3 3.9 2.7 17a2 2 0 0 0 1.7 3h15.2a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0Z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></svg><span>Lecture seule : vous n\'avez pas les droits de modification. Demandez l\'accès « Contributeur » ou plus à la personne qui a partagé ce lien.</span></div>';
+  }
+  return '';
+}
+
+/* ================= render: content dispatch ================= */
+function renderContent(){
+  var el = document.getElementById('content');
+  switch(ui.tab){
+    case 'etablissement': el.innerHTML = readOnlyBanner() + viewEtablissement(); break;
+    case 'classes': el.innerHTML = readOnlyBanner() + viewClasses(); break;
+    case 'eleves': el.innerHTML = readOnlyBanner() + viewEleves(); break;
+    case 'matieres': el.innerHTML = readOnlyBanner() + viewMatieres(); break;
+    case 'notes': el.innerHTML = readOnlyBanner() + viewNotes(); break;
+    case 'appels': el.innerHTML = readOnlyBanner() + viewAppels(); break;
+    case 'bulletins': el.innerHTML = readOnlyBanner() + viewBulletins(); break;
+    default: el.innerHTML = "";
+  }
+}
+function render(){ renderShell(); renderContent(); }
+
+/* ================= view: établissement ================= */
+function viewEtablissement(){
+  var s = cache.school;
+  var logoHtml = s.logo
+    ? '<img class="logo-preview" src="'+s.logo+'" alt="Logo de l\'établissement">'
+    : '<div class="logo-ph"><svg viewBox="0 0 24 24" width="24" height="24" fill="none"><path d="M4 21V9l8-5 8 5v12" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></svg></div>';
+  var dis = writeGuardOk() ? '' : ' disabled';
+
+  return ''
+  + '<div class="view-head"><div><h1>Établissement</h1><p>Identité de l\'école : elle apparaît en en-tête de chaque bulletin, et est visible par tous les collaborateurs.</p></div></div>'
+  + '<div class="panel">'
+    + '<h2>Identité</h2>'
+    + '<div class="field-grid">'
+      + field('text','school.nom','Nom de l\'établissement', s.nom, 'Ex. Lycée…', dis)
+      + field('text','school.anneeScolaire','Année scolaire', s.anneeScolaire, 'Ex. 2025-2026', dis)
+      + field('tel','school.telephone','Téléphone', s.telephone, '', dis)
+      + field('email','school.email','E-mail', s.email, '', dis)
+    + '</div>'
+    + '<div class="hint">Les champs se sauvegardent automatiquement et sont partagés avec tous les collaborateurs.</div>'
+  + '</div>'
+  + '<div class="panel">'
+    + '<h2>Logo / cachet</h2>'
+    + '<div class="logo-row">'
+      + logoHtml
+      + '<div class="row">'
+        + '<label class="btn btn-sm">Importer une image<input type="file" accept="image/*" id="logoInput" hidden'+dis+'></label>'
+        + (s.logo ? '<button type="button" class="btn btn-sm btn-ghost btn-danger" data-action="remove-logo"'+dis+'>Retirer</button>' : '')
+      + '</div>'
+    + '</div>'
+  + '</div>'
+  + '<div class="panel">'
+    + '<h2>Qui a accès ?</h2>'
+    + '<p class="hint" style="margin-top:0">Les données sont partagées en direct entre les comptes autorisés dans votre projet Supabase. Pour ajouter un enseignant, créez son utilisateur dans Supabase Authentication, puis communiquez-lui ses identifiants de connexion. N’activez pas l’inscription publique.</p><div class="row"><span class="hint">Compte connecté : <strong>'+esc(viewer && viewer.email || '')+'</strong></span><button type="button" class="btn btn-sm" data-action="logout">Se déconnecter</button></div>'
+  + '</div>'
+  + '<div class="panel">'
+    + '<h2>Importer les données existantes</h2>'
+    + '<p class="hint" style="margin-top:0">Importez le fichier JSON de votre ancienne plateforme pour retrouver les classes, élèves, matières, notes et conseils dans Supabase. L’import remplace les données actuellement enregistrées.</p>'
+    + '<div class="row"><input type="file" id="importJsonInput" accept=".json,application/json"'+dis+'></div>'
+  + '</div>'
+  + '<div class="panel">'
+    + '<h2>Sauvegarde (lecture seule)</h2>'
+    + '<p class="hint" style="margin-top:0">Copie de secours des données actuelles, à titre de précaution.</p>'
+    + '<div class="field"><label>Données (JSON)</label><textarea class="code" id="backupBox" readonly>'+esc(JSON.stringify({school:cache.school, classes:cache.classes, eleves:cache.eleves, matieres:cache.matieres, notes:cache.notes, conseil:cache.conseil}))+'</textarea></div>'
+    + '<div class="row" style="margin-top:8px"><button type="button" class="btn btn-sm" data-action="copy-backup">Copier</button></div>'
+  + '</div>';
+}
+
+function field(type, path, label, value, placeholder, dis){
+  return '<div class="field"><label>'+esc(label)+'</label><input type="'+type+'" data-path="'+path+'" value="'+esc(value||'')+'" placeholder="'+esc(placeholder||'')+'"'+(dis||'')+'></div>';
+}
+
+/* ================= view: classes ================= */
+function viewClasses(){
+  var dis = writeGuardOk() ? '' : ' disabled';
+  var rows = clasesTriees().map(function(c){
+    var eff = elevesDe(c.id).length;
+    return '<tr>'
+      + '<td><input type="text" data-classe="'+c.id+'" data-field="nom" value="'+esc(c.nom)+'"'+dis+'></td>'
+      + '<td><input type="text" data-classe="'+c.id+'" data-field="professeurPrincipal" value="'+esc(c.professeurPrincipal)+'" placeholder="Nom du professeur"'+dis+'></td>'
+      + '<td class="tabnum">'+eff+'</td>'
+      + '<td>'+ rowDelete('classe', c.id) +'</td>'
+    + '</tr>';
+  }).join('');
+
+  return ''
+  + '<div class="view-head"><div><h1>Classes</h1><p>Chaque classe a un professeur principal ; son effectif se calcule automatiquement selon les élèves qui lui sont rattachés.</p></div></div>'
+  + '<div class="panel">'
+    + '<h2>Nouvelle classe</h2>'
+    + '<div class="row">'
+      + '<input type="text" id="newClasseNom" placeholder="Nom de la classe (ex. 1ère S1)" style="flex:1; min-width:160px; border:1px solid var(--line); background:var(--bg); color:var(--ink); border-radius:8px; padding:8px 10px;"'+dis+'>'
+      + '<input type="text" id="newClasseProf" placeholder="Professeur principal" style="flex:1; min-width:160px; border:1px solid var(--line); background:var(--bg); color:var(--ink); border-radius:8px; padding:8px 10px;"'+dis+'>'
+      + '<button type="button" class="btn btn-primary" data-action="add-classe"'+dis+'>Ajouter</button>'
+    + '</div>'
+  + '</div>'
+  + '<div class="panel">'
+    + '<h2>Classes <span class="count">'+cache.classes.length+'</span></h2>'
+    + (cache.classes.length
+      ? '<div class="table-wrap"><table><thead><tr><th>Nom</th><th>Professeur principal</th><th>Effectif</th><th></th></tr></thead><tbody>'+rows+'</tbody></table></div>'
+      : '<div class="empty">Aucune classe pour l\'instant. Ajoutez-en une ci-dessus.</div>')
+  + '</div>';
+}
+
+function rowDelete(kind, id){
+  var dis = writeGuardOk() ? '' : ' disabled';
+  if(ui.deleteArmed === kind+':'+id){
+    return '<div class="confirm-box"><span>Supprimer ?</span><button type="button" class="btn btn-sm btn-danger" data-action="delete-confirm" data-kind="'+kind+'" data-id="'+id+'"'+dis+'>Oui</button><button type="button" class="btn btn-sm btn-ghost" data-action="delete-cancel">Non</button></div>';
+  }
+  return '<button type="button" class="btn btn-sm btn-ghost btn-danger" data-action="delete-arm" data-kind="'+kind+'" data-id="'+id+'" aria-label="Supprimer"'+dis+'><svg viewBox="0 0 24 24" width="14" height="14" fill="none"><path d="M4 7h16M9 7V5a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2m-9 0 1 13a1 1 0 0 0 1 1h8a1 1 0 0 0 1-1l1-13" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg></button>';
+}
+
+/* ================= view: élèves ================= */
+function viewEleves(){
+  var dis = writeGuardOk() ? '' : ' disabled';
+  var classes = clasesTriees();
+  var filtre = ui.classeFiltre || (classes[0] && classes[0].id) || "";
+  var opts = classes.map(function(c){ return '<option value="'+c.id+'"'+(c.id===filtre?' selected':'')+'>'+esc(c.nom)+'</option>'; }).join('');
+  var liste = filtre ? elevesDe(filtre) : [];
+
+  var rows = liste.map(function(e){
+    var photo = e.photo ? '<img class="thumb" src="'+e.photo+'" alt="">' : '<div class="thumb-ph"><svg viewBox="0 0 24 24" width="15" height="15" fill="none"><circle cx="12" cy="9" r="3" stroke="currentColor" stroke-width="1.6"/><path d="M5 20c1-3.3 3.3-5 7-5s6 1.7 7 5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg></div>';
+    var classeOpts = classes.map(function(c){ return '<option value="'+c.id+'"'+(c.id===e.classeId?' selected':'')+'>'+esc(c.nom)+'</option>'; }).join('');
+    return '<tr>'
+      + '<td>'+photo+'</td>'
+      + '<td><input type="text" data-eleve="'+e.id+'" data-field="nom" value="'+esc(e.nom)+'"'+dis+'></td>'
+      + '<td><input type="text" data-eleve="'+e.id+'" data-field="prenom" value="'+esc(e.prenom)+'"'+dis+'></td>'
+      + '<td><select data-eleve="'+e.id+'" data-field="sexe"'+dis+'><option value=""'+(!e.sexe?' selected':'')+'>—</option><option value="M"'+(e.sexe==='M'?' selected':'')+'>M</option><option value="F"'+(e.sexe==='F'?' selected':'')+'>F</option></select></td>'
+      + '<td><input type="text" data-eleve="'+e.id+'" data-field="matricule" value="'+esc(e.matricule)+'"'+dis+'></td>'
+      + '<td><input type="date" data-eleve="'+e.id+'" data-field="dateNaissance" value="'+esc(e.dateNaissance)+'"'+dis+'></td>'
+      + '<td><select data-eleve="'+e.id+'" data-field="classeId"'+dis+'>'+classeOpts+'</select></td>'
+      + '<td><label class="btn btn-sm" style="padding:4px 8px">Photo<input type="file" accept="image/*" data-eleve-photo="'+e.id+'" hidden'+dis+'></label></td>'
+      + '<td>'+ rowDelete('eleve', e.id) +'</td>'
+    + '</tr>';
+  }).join('');
+
+  return ''
+  + '<div class="view-head"><div><h1>Élèves</h1><p>Rattachez chaque élève à une classe ; ces informations figurent sur son bulletin.</p></div></div>'
+  + '<div class="panel">'
+    + '<h2>Nouvel élève</h2>'
+    + '<div class="field-grid">'
+      + '<div class="field"><label>Nom</label><input type="text" id="newEleveNom" placeholder="Nom"'+dis+'></div>'
+      + '<div class="field"><label>Prénom</label><input type="text" id="newElevePrenom" placeholder="Prénom"'+dis+'></div>'
+      + '<div class="field"><label>Classe</label><select id="newEleveClasse"'+dis+'>'+opts+'</select></div>'
+      + '<div class="field"><label>Sexe</label><select id="newEleveSexe"'+dis+'><option value="">Choisir</option><option value="M">Masculin</option><option value="F">Féminin</option></select></div>'
+      + '<div class="field"><label>Né(e) le</label><input type="date" id="newEleveDate"'+dis+'></div>'
+      + '<div class="field"><label>Matricule (optionnel)</label><input type="text" id="newEleveMatricule" placeholder="Auto si vide"'+dis+'></div>'
+    + '</div>'
+    + '<div class="row" style="margin-top:12px"><button type="button" class="btn btn-primary" data-action="add-eleve"'+dis+'>Ajouter l\'élève</button></div>'
+  + '</div>'
+  + '<div class="panel">'
+    + '<h2>Liste des élèves <span class="count">'+liste.length+'</span></h2>'
+    + '<div class="row" style="margin-bottom:12px"><div class="field" style="min-width:220px"><label>Filtrer par classe</label><select id="filtreClasseEleves">'+opts+'</select></div></div>'
+    + (classes.length===0 ? '<div class="empty">Créez d\'abord une classe dans l\'onglet « Classes ».</div>'
+      : liste.length ? '<div class="table-wrap"><table><thead><tr><th>Photo</th><th>Nom</th><th>Prénom</th><th>Sexe</th><th>Matricule</th><th>Né(e) le</th><th>Classe</th><th></th><th></th></tr></thead><tbody>'+rows+'</tbody></table></div>'
+      : '<div class="empty">Aucun élève dans cette classe.</div>')
+  + '</div>';
+}
+
+/* ================= view: matières ================= */
+function viewMatieres(){
+  var dis = writeGuardOk() ? '' : ' disabled';
+  var classes = clasesTriees();
+  var filtre = ui.classeFiltre || (classes[0] && classes[0].id) || "";
+  var opts = classes.map(function(c){ return '<option value="'+c.id+'"'+(c.id===filtre?' selected':'')+'>'+esc(c.nom)+'</option>'; }).join('');
+  var liste = filtre ? matieresDe(filtre) : [];
+
+  var rows = liste.map(function(m){
+    return '<tr>'
+      + '<td><input type="text" data-matiere="'+m.id+'" data-field="nom" value="'+esc(m.nom)+'"'+dis+'></td>'
+      + '<td><input type="text" data-matiere="'+m.id+'" data-field="enseignant" value="'+esc(m.enseignant)+'" placeholder="Nom de l\'enseignant"'+dis+'></td>'
+      + '<td>'+ rowDelete('matiere', m.id) +'</td>'
+    + '</tr>';
+  }).join('');
+
+  return ''
+  + '<div class="view-head"><div><h1>Matières</h1><p>Les matières sont propres à chaque classe, avec l\'enseignant qui l\'anime.</p></div></div>'
+  + '<div class="panel">'
+    + '<h2>Nouvelle matière</h2>'
+    + '<div class="field-grid">'
+      + '<div class="field"><label>Classe</label><select id="newMatiereClasse"'+dis+'>'+opts+'</select></div>'
+      + '<div class="field"><label>Matière</label><input type="text" id="newMatiereNom" placeholder="Ex. Mathématiques"'+dis+'></div>'
+      + '<div class="field"><label>Enseignant</label><input type="text" id="newMatiereEns" placeholder="Nom de l\'enseignant"'+dis+'></div>'
+    + '</div>'
+    + '<div class="row" style="margin-top:12px"><button type="button" class="btn btn-primary" data-action="add-matiere"'+dis+'>Ajouter</button></div>'
+  + '</div>'
+  + '<div class="panel">'
+    + '<h2>Matières <span class="count">'+liste.length+'</span></h2>'
+    + '<div class="row" style="margin-bottom:12px"><div class="field" style="min-width:220px"><label>Filtrer par classe</label><select id="filtreClasseMatieres">'+opts+'</select></div></div>'
+    + (classes.length===0 ? '<div class="empty">Créez d\'abord une classe.</div>'
+      : liste.length ? '<div class="table-wrap"><table><thead><tr><th>Matière</th><th>Enseignant</th><th></th></tr></thead><tbody>'+rows+'</tbody></table></div>'
+      : '<div class="empty">Aucune matière pour cette classe.</div>')
+  + '</div>';
+}
+
+/* ================= view: notes ================= */
+function viewNotes(){
+  var dis = writeGuardOk() ? '' : ' disabled';
+  var classes = clasesTriees();
+  var classeId = ui.classeFiltre || (classes[0] && classes[0].id) || "";
+  var classeOpts = classes.map(function(c){ return '<option value="'+c.id+'"'+(c.id===classeId?' selected':'')+'>'+esc(c.nom)+'</option>'; }).join('');
+  var mats = classeId ? matieresDe(classeId) : [];
+  var matiereId = ui.notesMatiere && mats.some(function(m){return m.id===ui.notesMatiere;}) ? ui.notesMatiere : (mats[0] ? mats[0].id : "");
+  var matOpts = mats.map(function(m){ return '<option value="'+m.id+'"'+(m.id===matiereId?' selected':'')+'>'+esc(m.nom)+'</option>'; }).join('');
+  var eleves = classeId ? elevesDe(classeId) : [];
+  var tri = ui.trimestre;
+
+  var rows = "";
+  if(matiereId){
+    var st = statsMatiere(classeId, matiereId, tri);
+    rows = eleves.map(function(e){
+      var entry = getNoteEntry(e.id, matiereId, tri);
+      var moy = st.moyennes[e.id];
+      var rang = st.ranks[e.id];
+      var tone = appreciationTone(moy);
+      return '<tr>'
+        + '<td>'+esc(e.nom)+' '+esc(e.prenom)+'</td>'
+        + '<td><input type="number" min="0" max="20" step="0.25" class="mono" data-note-eleve="'+e.id+'" data-note-field="dev1" value="'+(entry.valeurs[0]??'')+'"'+dis+'></td>'
+        + '<td><input type="number" min="0" max="20" step="0.25" class="mono" data-note-eleve="'+e.id+'" data-note-field="dev2" value="'+(entry.valeurs[1]??'')+'"'+dis+'></td>'
+        + '<td><input type="number" min="0" max="20" step="0.25" class="mono" data-note-eleve="'+e.id+'" data-note-field="dev3" value="'+(entry.valeurs[2]??'')+'"'+dis+'></td>'
+        + '<td><input type="number" min="0" max="20" step="0.25" class="mono" data-note-eleve="'+e.id+'" data-note-field="dev4" value="'+(entry.valeurs[3]??'')+'"'+dis+'></td>'
+        + '<td class="tabnum" style="text-align:center">'+fmt(moy)+'</td>'
+        + '<td style="text-align:center">'+(rang ? '<span class="pill pill-'+tone+'">'+ordinal(rang)+'</span>' : '—')+'</td>'
+        + '<td><input type="text" data-note-eleve="'+e.id+'" data-note-field="appreciation" value="'+esc(entry.appreciation)+'" placeholder="'+esc(suggestAppreciation(moy)||'Appréciation')+'"'+dis+'></td>'
+      + '</tr>';
+    }).join('');
+  }
+
+  return ''
+  + '<div class="view-head"><div><h1>Notes — Trimestre '+tri+'</h1><p>Saisissez les quatre devoirs sur 20. La moyenne est calculée automatiquement sur les devoirs renseignés et les résultats sont synchronisés.</p></div></div>'
+  + '<div class="panel">'
+    + '<div class="field-grid">'
+      + '<div class="field"><label>Classe</label><select id="notesClasse">'+classeOpts+'</select></div>'
+      + '<div class="field"><label>Matière</label><select id="notesMatiere">'+matOpts+'</select></div>'
+    + '</div>'
+  + '</div>'
+  + '<div class="panel">'
+    + (classes.length===0 ? '<div class="empty">Créez d\'abord une classe.</div>'
+      : eleves.length===0 ? '<div class="empty">Aucun élève dans cette classe.</div>'
+      : mats.length===0 ? '<div class="empty">Ajoutez d\'abord une matière à cette classe (onglet « Matières »).</div>'
+      : '<div class="table-wrap"><table><thead><tr><th>Élève</th><th>Dev1</th><th>Dev2</th><th>Dev3</th><th>Dev4</th><th>Moyenne</th><th>Rang</th><th>Appréciation</th></tr></thead><tbody>'+rows+'</tbody></table></div>')
+  + '</div>';
+}
+
+/* ================= view: liste d'appel ================= */
+function viewAppels(){
+  var dis=writeGuardOk()?'':' disabled';
+  var classes=clasesTriees(), classeId=ui.classeFiltre||(classes[0]&&classes[0].id)||'';
+  var opts=classes.map(function(c){return '<option value="'+c.id+'"'+(c.id===classeId?' selected':'')+'>'+esc(c.nom)+'</option>';}).join('');
+  var date=ui.dateAppel||todayISO(), eleves=classeId?elevesDe(classeId):[];
+  var rows=eleves.map(function(e){var key=date+'_'+classeId+'_'+e.id, a=cache.appels[key]||{};return '<tr><td>'+esc(e.nom)+'</td><td>'+esc(e.prenom)+'</td><td>'+esc(e.sexe||'—')+'</td><td><select data-appel-eleve="'+e.id+'"'+dis+'><option value="present"'+((a.statut||'present')==='present'?' selected':'')+'>Présent</option><option value="absent"'+(a.statut==='absent'?' selected':'')+'>Absent</option><option value="retard"'+(a.statut==='retard'?' selected':'')+'>Retard</option><option value="justifie"'+(a.statut==='justifie'?' selected':'')+'>Absent justifié</option></select></td></tr>';}).join('');
+  return '<div class="view-head"><div><h1>Liste d’appel</h1><p>Appel quotidien par classe. La date de naissance n’apparaît pas dans ce registre.</p></div></div><div class="panel"><div class="field-grid"><div class="field"><label>Classe</label><select id="appelClasse">'+opts+'</select></div><div class="field"><label>Date</label><input type="date" id="appelDate" value="'+esc(date)+'"'+dis+'></div></div></div><div class="panel"><h2>Présences <span class="count">'+eleves.length+' élèves</span></h2>'+(eleves.length?'<div class="table-wrap"><table><thead><tr><th>Nom</th><th>Prénom</th><th>Sexe</th><th>Présence</th></tr></thead><tbody>'+rows+'</tbody></table></div>':'<div class="empty">Aucun élève dans cette classe. Créez d’abord une classe et ajoutez ses élèves.</div>')+'</div>';
+}
+
+/* ================= view: bulletins ================= */
+function viewBulletins(){
+  var classes = clasesTriees();
+  var classeId = ui.classeFiltre || (classes[0] && classes[0].id) || "";
+  var classeOpts = classes.map(function(c){ return '<option value="'+c.id+'"'+(c.id===classeId?' selected':'')+'>'+esc(c.nom)+'</option>'; }).join('');
+  var eleves = classeId ? elevesDe(classeId) : [];
+  var tri = ui.trimestre;
+  var mode = ui.bulletinMode || 'un';
+  var eleveId = ui.bulletinEleve && eleves.some(function(e){return e.id===ui.bulletinEleve;}) ? ui.bulletinEleve : (eleves[0] ? eleves[0].id : "");
+  var eleveOpts = eleves.map(function(e){ return '<option value="'+e.id+'"'+(e.id===eleveId?' selected':'')+'>'+esc(e.nom)+' '+esc(e.prenom)+'</option>'; }).join('');
+
+  var liste = mode==='tous' ? eleves : (eleveId ? eleves.filter(function(e){return e.id===eleveId;}) : []);
+  var sheets = liste.map(function(e){ return renderSheet(e, classeId, tri); }).join('');
+
+  return ''
+  + '<div class="view-head"><div><h1>Bulletins — Trimestre '+tri+'</h1><p>Mise en page prête à imprimer.</p></div></div>'
+  + '<div class="panel">'
+    + '<div class="field-grid">'
+      + '<div class="field"><label>Classe</label><select id="bulletinClasse">'+classeOpts+'</select></div>'
+      + '<div class="field"><label>Affichage</label><select id="bulletinMode"><option value="un"'+(mode==='un'?' selected':'')+'>Un seul élève</option><option value="tous"'+(mode==='tous'?' selected':'')+'>Toute la classe</option></select></div>'
+      + (mode==='un' ? '<div class="field"><label>Élève</label><select id="bulletinEleve">'+eleveOpts+'</select></div>' : '')
+    + '</div>'
+  + '</div>'
+  + '<div class="print-hint"><svg viewBox="0 0 24 24" fill="none"><path d="M6 9V3h12v6M6 18H4a1 1 0 0 1-1-1v-6a1 1 0 0 1 1-1h16a1 1 0 0 1 1 1v6a1 1 0 0 1-1 1h-2M6 14h12v7H6z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></svg><span>Pour imprimer ou enregistrer en PDF, utilisez le raccourci de votre navigateur — <strong class="mono">Ctrl+P</strong> (Windows) ou <strong class="mono">Cmd+P</strong> (Mac).</span></div>'
+  + (classes.length===0 ? '<div class="panel"><div class="empty">Créez d\'abord une classe.</div></div>'
+    : eleves.length===0 ? '<div class="panel"><div class="empty">Aucun élève dans cette classe.</div></div>'
+    : sheets);
+}
+
+function renderSheet(e, classeId, tri){
+  var dis = writeGuardOk() ? '' : ' disabled';
+  var classe = cache.classes.find(function(c){ return c.id===classeId; }) || {nom:"—", professeurPrincipal:""};
+  var mats = matieresDe(classeId);
+  var gen = statsGenerale(classeId, tri);
+  var moyGen = gen.generales[e.id];
+  var rangGen = gen.ranks[e.id];
+  var effectif = elevesDe(classeId).length;
+  var conseil = getConseil(e.id, tri);
+  var dateBulletin = conseil.date || todayISO();
+
+  var school = cache.school;
+  var crest = school.logo ? '<img class="sheet-crest" src="'+school.logo+'" alt="">' : '<div class="sheet-crest-ph">'+ICONS.etablissement+'</div>';
+  var photo = e.photo ? '<img class="sheet-photo" src="'+e.photo+'" alt="">' : '<div class="sheet-photo-ph"><svg viewBox="0 0 24 24" width="22" height="22" fill="none"><circle cx="12" cy="9" r="3" stroke="currentColor" stroke-width="1.5"/><path d="M5 20c1-3.3 3.3-5 7-5s6 1.7 7 5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg></div>';
+
+  var rows = mats.map(function(m){
+    var st = statsMatiere(classeId, m.id, tri);
+    var entry = getNoteEntry(e.id, m.id, tri);
+    var moy = st.moyennes[e.id];
+    var rang = st.ranks[e.id];
+    return '<tr>'
+      + '<td><div class="matiere-nom">'+esc(m.nom)+'</div><div class="ens-nom">'+esc(m.enseignant)+'</div></td>'
+      + '<td class="num tabnum">'+entry.valeurs.length+'</td>'
+      + '<td class="num tabnum">'+(rang?ordinal(rang):'—')+'</td>'
+      + '<td class="num tabnum">'+fmt(moy)+'</td>'
+      + '<td class="num tabnum">'+fmt(st.moyenneClasse)+'</td>'
+      + '<td>'+esc(entry.appreciation || suggestAppreciation(moy))+'</td>'
+    + '</tr>';
+  }).join('');
+
+  return ''
+  + '<div class="sheet" data-sheet="'+e.id+'">'
+    + '<div class="sheet-head">'
+      + crest
+      + '<div class="sheet-school">'
+        + '<div class="nom">'+esc(school.nom || 'Établissement scolaire')+'</div>'
+        + '<div class="meta">'
+          + (school.telephone ? 'Téléphone : '+esc(school.telephone)+'<br>' : '')
+          + (school.email ? 'E-mail : '+esc(school.email)+'<br>' : '')
+          + 'Année scolaire : '+esc(school.anneeScolaire || '—')
+        + '</div>'
+      + '</div>'
+      + '<div class="sheet-doc">'
+        + '<div class="titre">Bulletin du Trimestre '+tri+'</div>'
+        + '<div class="date">Le '+esc(frDate(dateBulletin))+'</div>'
+        + '<div class="field" style="margin-top:6px"><input type="date" data-sheet-date="'+e.id+'" value="'+esc(dateBulletin)+'" style="font-size:11.5px; padding:4px 6px"'+dis+'></div>'
+      + '</div>'
+    + '</div>'
+    + '<div class="sheet-id">'
+      + '<dl>'
+        + '<dt>Matricule</dt><dd class="mono">'+esc(e.matricule || '—')+'</dd>'
+        + '<dt>Élève</dt><dd class="nom-eleve">'+esc((e.nom||'').toUpperCase())+' '+esc(e.prenom)+'</dd>'
+        + '<dt>Né(e) le</dt><dd>'+esc(frDate(e.dateNaissance))+'</dd>'
+        + '<dt>Classe</dt><dd>'+esc(classe.nom)+' ('+effectif+')</dd>'
+        + '<dt>Professeur principal</dt><dd>'+esc(classe.professeurPrincipal || '—')+'</dd>'
+      + '</dl>'
+      + photo
+    + '</div>'
+    + (mats.length
+      ? '<div class="table-wrap"><table>'
+        + '<thead><tr><th>Matière</th><th>Nb notes</th><th>Rang</th><th>Moy. élève</th><th>Moy. classe</th><th>Appréciation</th></tr></thead>'
+        + '<tbody>'+rows+'</tbody>'
+        + '<tfoot><tr><td colspan="2">Moyenne générale</td><td class="num tabnum">'+(rangGen?ordinal(rangGen):'—')+'</td><td class="num tabnum">'+fmt(moyGen)+'</td><td class="num tabnum">'+fmt(gen.moyenneClasse)+'</td><td></td></tr></tfoot>'
+        + '</table></div>'
+      : '<div class="empty">Aucune matière définie pour cette classe.</div>')
+    + '<div class="sheet-conseil">'
+      + '<div class="left">'
+        + '<div class="ttl">Appréciation du conseil de classe</div>'
+        + '<div class="cline"><span>Absences</span><input type="text" data-conseil-eleve="'+e.id+'" data-conseil-field="absences" value="'+esc(conseil.absences)+'"'+dis+'></div>'
+        + '<div class="cline" style="align-items:flex-start"><span>Appréciation globale</span><textarea rows="2" data-conseil-eleve="'+e.id+'" data-conseil-field="appreciationGlobale" placeholder="'+esc(suggestAppreciation(moyGen))+'"'+dis+'>'+esc(conseil.appreciationGlobale)+'</textarea></div>'
+      + '</div>'
+      + '<div>'
+        + '<div class="ttl">Signature &amp; cachet</div>'
+        + '<div class="sig-row"><div class="seal">Cachet<br>de<br>l\'établissement</div></div>'
+      + '</div>'
+    + '</div>'
+  + '</div>';
+}
+
+/* ================= events ================= */
+function setPath(obj, path, value){ var parts = path.split('.'); var o = obj; for(var i=0;i<parts.length-1;i++){ o = o[parts[i]]; } o[parts[parts.length-1]] = value; }
+
+document.addEventListener('click', function(e){
+  var t = e.target.closest('[data-action], [data-tab], [data-term]');
+  if(!t) return;
+
+  if(t.dataset.tab){ ui.tab = t.dataset.tab; saveUi(); render(); return; }
+  if(t.dataset.term){ ui.trimestre = parseInt(t.dataset.term,10); saveUi(); render(); return; }
+
+  var action = t.dataset.action;
+  if(!action) return;
+  if(!writeGuardOk() && action !== 'copy-backup') return;
+
+  if(action === 'logout'){ supabase.auth.signOut(); return; }
+  if(action === 'remove-logo'){ cache.school.logo=""; render(); dbSetDoc("config/ecole", cache.school); }
+  else if(action === 'copy-backup'){
+    var box = document.getElementById('backupBox'); box.select();
+    navigator.clipboard && navigator.clipboard.writeText(box.value).catch(function(){ try{ document.execCommand('copy'); }catch(err){} });
+  }
+  else if(action === 'add-classe'){
+    var nomEl = document.getElementById('newClasseNom'), profEl = document.getElementById('newClasseProf');
+    if(nomEl.value.trim()){
+      var id = uid();
+      var obj = { nom:nomEl.value.trim(), professeurPrincipal:profEl.value.trim() };
+      cache.classes.push(Object.assign({id:id}, obj));
+      ui.classeFiltre = id; saveUi(); render();
+      dbSet("classes", id, obj);
+    }
+  }
+  else if(action === 'add-eleve'){
+    var nEl=document.getElementById('newEleveNom'), pEl=document.getElementById('newElevePrenom'),
+        cEl=document.getElementById('newEleveClasse'), dEl=document.getElementById('newEleveDate'),
+        sxEl=document.getElementById('newEleveSexe'), mEl=document.getElementById('newEleveMatricule');
+    if(nEl.value.trim() && cEl.value){
+      var eid = uid();
+      var obj = { classeId:cEl.value, nom:nEl.value.trim(), prenom:(pEl.value||'').trim(), sexe:sxEl?sxEl.value:'', dateNaissance:dEl.value||'', matricule:(mEl.value||'').trim() || ('EL-'+Math.floor(1000+Math.random()*9000)), photo:'' };
+      cache.eleves.push(Object.assign({id:eid}, obj));
+      render();
+      dbSet("eleves", eid, obj);
+    }
+  }
+  else if(action === 'add-matiere'){
+    var cmEl=document.getElementById('newMatiereClasse'), nmEl=document.getElementById('newMatiereNom'), emEl=document.getElementById('newMatiereEns');
+    if(cmEl.value && nmEl.value.trim()){
+      var mid = uid();
+      var obj = { classeId:cmEl.value, nom:nmEl.value.trim(), enseignant:(emEl.value||'').trim() };
+      cache.matieres.push(Object.assign({id:mid}, obj));
+      render();
+      dbSet("matieres", mid, obj);
+    }
+  }
+  else if(action === 'delete-arm'){ ui.deleteArmed = t.dataset.kind+':'+t.dataset.id; render(); }
+  else if(action === 'delete-cancel'){ ui.deleteArmed = ''; render(); }
+  else if(action === 'delete-confirm'){
+    var kind=t.dataset.kind, id=t.dataset.id;
+    if(kind==='classe'){
+      var orphanEleves = cache.eleves.filter(function(e){return e.classeId===id;});
+      var orphanMats = cache.matieres.filter(function(m){return m.classeId===id;});
+      cache.classes = cache.classes.filter(function(c){return c.id!==id;});
+      cache.eleves = cache.eleves.filter(function(e){return e.classeId!==id;});
+      cache.matieres = cache.matieres.filter(function(m){return m.classeId!==id;});
+      if(ui.classeFiltre===id) ui.classeFiltre = '';
+      ui.deleteArmed = ''; saveUi(); render();
+      dbDelete("classes", id);
+      orphanEleves.forEach(function(e){ dbDelete("eleves", e.id); });
+      orphanMats.forEach(function(m){ dbDelete("matieres", m.id); });
+    } else if(kind==='eleve'){
+      cache.eleves = cache.eleves.filter(function(e){return e.id!==id;});
+      ui.deleteArmed=''; render();
+      dbDelete("eleves", id);
+    } else if(kind==='matiere'){
+      cache.matieres = cache.matieres.filter(function(m){return m.id!==id;});
+      ui.deleteArmed=''; render();
+      dbDelete("matieres", id);
+    }
+  }
+});
+
+document.addEventListener('change', function(e){
+  var t = e.target;
+  if(!writeGuardOk() && (t.dataset.path || t.dataset.classe || t.dataset.eleve || t.dataset.matiere || t.dataset.noteEleve || t.dataset.appelEleve || t.dataset.conseilEleve || t.dataset.sheetDate || t.id==='logoInput' || t.hasAttribute('data-eleve-photo'))) return;
+
+  if(t.id === 'importJsonInput' && t.files && t.files[0]){
+    var reader = new FileReader();
+    reader.onload = async function(){
+      try{
+        var imported = JSON.parse(String(reader.result||'{}'));
+        if(!imported || typeof imported !== 'object' || !Array.isArray(imported.classes) || !Array.isArray(imported.eleves) || !Array.isArray(imported.matieres)) throw new Error('Structure JSON non reconnue.');
+        if(!confirm('Confirmer l’import ? Les données actuellement présentes dans Supabase seront remplacées.')) return;
+        cache.school = Object.assign({nom:'',telephone:'',email:'',anneeScolaire:'',logo:''}, imported.school||{});
+        cache.classes = imported.classes; cache.eleves = imported.eleves; cache.matieres = imported.matieres;
+        cache.notes = imported.notes && typeof imported.notes==='object' ? imported.notes : {};
+        cache.conseil = imported.conseil && typeof imported.conseil==='object' ? imported.conseil : {};
+        cache.appels = imported.appels && typeof imported.appels==='object' ? imported.appels : {};
+        await persistPayload(); render(); alert('Import terminé : les données ont été envoyées vers Supabase.');
+      }catch(err){ alert('Import impossible : '+(err.message||err)); }
+      t.value='';
+    };
+    reader.readAsText(t.files[0], 'UTF-8'); return;
+  }
+
+  if(t.id === 'logoInput' && t.files && t.files[0]){
+    resizeImage(t.files[0], 220, function(dataUrl){ cache.school.logo = dataUrl; render(); dbSetDoc("config/ecole", cache.school); });
+    return;
+  }
+  if(t.hasAttribute('data-eleve-photo')){
+    var eid = t.getAttribute('data-eleve-photo');
+    if(t.files && t.files[0]){
+      resizeImage(t.files[0], 220, function(dataUrl){
+        var el = cache.eleves.find(function(x){return x.id===eid;});
+        if(el){ el.photo = dataUrl; render(); dbUpdate("eleves", eid, {photo:dataUrl}); }
+      });
+    }
+    return;
+  }
+
+  if(t.dataset.path){ setPath(cache, t.dataset.path, t.value); renderShell(); dbSetDoc("config/ecole", cache.school); return; }
+
+  if(t.id === 'appelClasse'){ui.classeFiltre=t.value;saveUi();render();return;}
+  if(t.id === 'appelDate'){ui.dateAppel=t.value;saveUi();render();return;}
+  if(t.id === 'filtreClasseEleves' || t.id==='filtreClasseMatieres' || t.id==='notesClasse' || t.id==='bulletinClasse'){ ui.classeFiltre = t.value; saveUi(); render(); return; }
+  if(t.id === 'notesMatiere'){ ui.notesMatiere = t.value; saveUi(); render(); return; }
+  if(t.id === 'bulletinMode'){ ui.bulletinMode = t.value; saveUi(); render(); return; }
+  if(t.id === 'bulletinEleve'){ ui.bulletinEleve = t.value; saveUi(); render(); return; }
+
+  if(t.dataset.classe){
+    var c = cache.classes.find(function(x){return x.id===t.dataset.classe;});
+    if(c){ var patch={}; patch[t.dataset.field]=t.value; c[t.dataset.field]=t.value; renderShell(); dbUpdate("classes", c.id, patch); }
+    return;
+  }
+  if(t.dataset.eleve){
+    var el = cache.eleves.find(function(x){return x.id===t.dataset.eleve;});
+    if(el){
+      var patch2={}; patch2[t.dataset.field]=t.value; el[t.dataset.field]=t.value;
+      if(t.dataset.field==='classeId') render(); else renderShell();
+      dbUpdate("eleves", el.id, patch2);
+    }
+    return;
+  }
+  if(t.dataset.matiere){
+    var m = cache.matieres.find(function(x){return x.id===t.dataset.matiere;});
+    if(m){ var patch3={}; patch3[t.dataset.field]=t.value; m[t.dataset.field]=t.value; dbUpdate("matieres", m.id, patch3); }
+    return;
+  }
+
+  if(t.dataset.noteEleve){
+    var classeId = ui.classeFiltre;
+    var matiereId = ui.notesMatiere || (matieresDe(classeId)[0] && matieresDe(classeId)[0].id);
+    var tri = ui.trimestre;
+    var eid2 = t.dataset.noteEleve, field = t.dataset.noteField;
+    if(['dev1','dev2','dev3','dev4'].indexOf(field)>=0){
+      var current=getNoteEntry(eid2,matiereId,tri), vals=(current.valeurs||[]).slice(0,4);
+      var ix=parseInt(field.slice(3),10)-1; vals[ix]=t.value===''?null:parseFloat(t.value);
+      while(vals.length<4) vals.push(null);
+      setNoteEntry(eid2,matiereId,tri,{valeurs:vals});
+    } else if(field==='valeurs'){
+      var vals = t.value.split(',').map(function(s){ return parseFloat(s.trim().replace(',','.')); }).filter(function(n){ return !isNaN(n); });
+      setNoteEntry(eid2, matiereId, tri, { valeurs: vals });
+    } else {
+      setNoteEntry(eid2, matiereId, tri, { appreciation: t.value });
+    }
+    return;
+  }
+
+  if(t.dataset.appelEleve){var classe=ui.classeFiltre||(clasesTriees()[0]&&clasesTriees()[0].id)||'', date=ui.dateAppel||todayISO(), key=date+'_'+classe+'_'+t.dataset.appelEleve; cache.appels[key]={date:date,classeId:classe,eleveId:t.dataset.appelEleve,statut:t.value}; persistPayload(); return;}
+  if(t.dataset.conseilEleve){ var patch4 = {}; patch4[t.dataset.conseilField] = t.value; setConseil(t.dataset.conseilEleve, ui.trimestre, patch4); return; }
+  if(t.dataset.sheetDate){ setConseil(t.dataset.sheetDate, ui.trimestre, { date: t.value }); return; }
+});
+
+/* ================= boot ================= */
+boot();
+})();
+</script>
