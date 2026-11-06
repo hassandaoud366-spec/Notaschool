@@ -355,8 +355,38 @@ async function boot(){
     viewer=auth.data.user;
     try{ await loadSchoolData(); subscribeSchoolData(); }catch(err){ showGateError('Erreur de chargement : '+(err.message||err)); btn.disabled=false; btn.textContent='Se connecter'; }
   });
-  supabase.auth.onAuthStateChange(function(event,session){
-    if(event==='SIGNED_OUT'){ viewer=null; location.reload(); }
+    supabase.auth.onAuthStateChange(async function(event, session) {
+
+    if (event === 'SIGNED_OUT') {
+        viewer = null;
+        location.reload();
+        return;
+    }
+
+    if (event === 'PASSWORD_RECOVERY') {
+
+        var newPassword = prompt('Entrez votre nouveau mot de passe :');
+
+        if (!newPassword) {
+            return;
+        }
+
+        if (newPassword.length < 6) {
+            alert('Le mot de passe doit contenir au moins 6 caractères.');
+            return;
+        }
+
+        const { error } = await supabase.auth.updateUser({
+            password: newPassword
+        });
+
+        if (error) {
+            alert('Erreur : ' + error.message);
+        } else {
+            alert('Mot de passe modifié avec succès !');
+            location.reload();
+        }
+    }
   });
 }
 function onCacheChange(){ flashSync('ok','Synchronisé'); render(); }
