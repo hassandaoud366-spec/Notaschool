@@ -228,7 +228,7 @@ textarea.code{width:100%; min-height:110px; font-family:"IBM Plex Mono",monospac
       <h1 id="gateTitle">Connexion à Notaschool</h1>
       <p id="gateText">Connectez-vous avec votre compte scolaire Supabase.</p>
       <form id="loginForm" style="text-align:left;margin-top:18px">
-        <div class="field"><label>Identifiant</label><input id="loginEmail" type="text" autocomplete="username" required placeholder="ex. prof1"></div>
+        <div class="field"><label>Adresse e-mail</label><input id="loginEmail" type="email" autocomplete="username" required placeholder="nom@ecole.dj"></div>
         <div class="field" style="margin-top:10px"><label>Mot de passe</label><input id="loginPassword" type="password" autocomplete="current-password" required placeholder="Mot de passe"></div>
         <button class="btn btn-primary" id="loginButton" type="submit" style="width:100%;justify-content:center;margin-top:14px">Se connecter</button>
       </form>
@@ -271,43 +271,6 @@ var supabase = null, viewer = null, canWriteData = true, readOnlyForced = false;
 var syncChannel = null, saveQueue = Promise.resolve();
 var SUPABASE_URL = window.NOTASCHOOL_SUPABASE_URL || "";
 var SUPABASE_ANON_KEY = window.NOTASCHOOL_SUPABASE_ANON_KEY || "";
-
-/* ================= roles ================= */
-var profile = null; // { role, must_change_password }
-var ROLE_TABS = {
-  super_admin: ["etablissement","classes","eleves","matieres","notes","appels","bulletins"],
-  school_admin: ["etablissement","classes","eleves","matieres","notes","appels","bulletins"],
-  director: ["etablissement","classes","eleves","matieres","notes","appels","bulletins"],
-  staff: ["classes","eleves","matieres","appels","bulletins"],
-  teacher: ["notes","bulletins"]
-};
-function allowedTabs(){
-  if(!profile || !profile.role || !ROLE_TABS[profile.role]) return [];
-  return ROLE_TABS[profile.role];
-}
-function tabAllowed(id){ return allowedTabs().indexOf(id) >= 0; }
-async function loadProfile(){
-  var res = await supabase.from('profiles').select('role,must_change_password').eq('id', viewer.id).single();
-  if(res.error || !res.data){
-    profile = null;
-    throw new Error('Compte non configuré : aucun profil (rôle) associé à ce compte. Contactez l’administrateur.');
-  }
-  profile = res.data;
-}
-async function forcePasswordChange(){
-  while(true){
-    var newPassword = prompt('Première connexion : choisissez votre mot de passe définitif (6 caractères minimum) :');
-    if(newPassword === null){ continue; }
-    if(newPassword.length < 6){ alert('Le mot de passe doit contenir au moins 6 caractères.'); continue; }
-    var up = await supabase.auth.updateUser({ password: newPassword });
-    if(up.error){ alert('Erreur : ' + up.error.message); continue; }
-    var pr = await supabase.from('profiles').update({ must_change_password:false }).eq('id', viewer.id);
-    if(pr.error){ alert('Mot de passe changé, mais erreur de mise à jour du profil : ' + pr.error.message); }
-    profile.must_change_password = false;
-    alert('Mot de passe défini. Vous pouvez continuer.');
-    return;
-  }
-}
 
 /* local-only UI preferences (per browser, never shared) */
 var LS_KEY = "notaschool_ui_prefs_v1";
@@ -443,8 +406,21 @@ async function boot(){
   if(!SUPABASE_URL || !SUPABASE_ANON_KEY){ showGateError('Configuration manquante : renseignez l’URL du projet et la clé anon/public dans supabase-config.js.'); return; }
   if(!window.supabase || !window.supabase.createClient){ showGateError('Impossible de charger la bibliothèque Supabase. Vérifiez votre connexion Internet.'); return; }
   supabase=window.supabase.createClient(SUPABASE_URL,SUPABASE_ANON_KEY);
-
-  supabase.auth.onAuthStateChange(async function(event, session) {
+  var sessionResult=await supabase.auth.getSession();
+  if(sessionResult.error){ showGateError(sessionResult.error.message); return; }
+  if(sessionResult.data.session){
+    viewer=sessionResult.data.session.user;
+    try{ await loadSchoolData(); subscribeSchoolData(); }catch(e){ showGateError('Erreur de chargement des données : '+(e.message||e)); }
+  }
+  form.addEventListener('submit',async function(e){
+    e.preventDefault(); var btn=document.getElementById('loginButton'); btn.disabled=true; btn.textContent='Connexion…';
+    var email=document.getElementById('loginEmail').value.trim(), password=document.getElementById('loginPassword').value;
+    var auth=await supabase.auth.signInWithPassword({email:email,password:password});
+    if(auth.error){ showGateError('Échec de connexion : '+auth.error.message); btn.disabled=false; btn.textContent='Se connecter'; return; }
+    viewer=auth.data.user;
+    try{ await loadSchoolData(); subscribeSchoolData(); }catch(err){ showGateError('Erreur de chargement : '+(err.message||err)); btn.disabled=false; btn.textContent='Se connecter'; }
+  });
+    supabase.auth.onAuthStateChange(async function(event, session) {
 
     if (event === 'SIGNED_OUT') {
         viewer = null;
@@ -476,30 +452,6 @@ async function boot(){
             location.reload();
         }
     }
-  });
-
-  async function afterSignIn(){
-    await loadProfile();
-    if(profile.must_change_password){ await forcePasswordChange(); }
-    if(!tabAllowed(ui.tab)){ ui.tab = allowedTabs()[0] || ''; saveUi(); }
-    await loadSchoolData();
-    subscribeSchoolData();
-  }
-
-  var sessionResult=await supabase.auth.getSession();
-  if(sessionResult.error){ showGateError(sessionResult.error.message); return; }
-  if(sessionResult.data.session){
-    viewer=sessionResult.data.session.user;
-    try{ await afterSignIn(); }catch(e){ showGateError(e.message||String(e)); }
-  }
-  form.addEventListener('submit',async function(e){
-    e.preventDefault(); var btn=document.getElementById('loginButton'); btn.disabled=true; btn.textContent='Connexion…';
-    var identifiant=document.getElementById('loginEmail').value.trim(), password=document.getElementById('loginPassword').value;
-    var email = identifiant.indexOf('@')>=0 ? identifiant : (identifiant.toLowerCase()+'@notaschool.local');
-    var auth=await supabase.auth.signInWithPassword({email:email,password:password});
-    if(auth.error){ showGateError('Échec de connexion : '+auth.error.message); btn.disabled=false; btn.textContent='Se connecter'; return; }
-    viewer=auth.data.user;
-    try{ await afterSignIn(); }catch(err){ showGateError(err.message||String(err)); btn.disabled=false; btn.textContent='Se connecter'; }
   });
 }
 function onCacheChange(){ flashSync('ok','Synchronisé'); render(); }
@@ -668,7 +620,7 @@ function renderShell(){
   var ts = document.getElementById('termSwitch');
   ts.querySelectorAll('button').forEach(function(b){ var t = parseInt(b.dataset.term,10); b.setAttribute('aria-pressed', t===ui.trimestre ? "true":"false"); });
   var tabsEl = document.getElementById('tabs');
-  tabsEl.innerHTML = TABS.filter(function(t){ return tabAllowed(t.id); }).map(function(t){
+  tabsEl.innerHTML = TABS.map(function(t){
     return '<button type="button" class="tab-btn" data-tab="'+t.id+'" aria-current="'+(ui.tab===t.id?'true':'false')+'">'+ICONS[t.id]+'<span>'+t.label+'</span></button>';
   }).join('');
 }
@@ -683,10 +635,6 @@ function readOnlyBanner(){
 /* ================= render: content dispatch ================= */
 function renderContent(){
   var el = document.getElementById('content');
-  if(!tabAllowed(ui.tab)){
-    el.innerHTML = '<div class="empty">Accès non autorisé pour votre rôle.</div>';
-    return;
-  }
   switch(ui.tab){
     case 'etablissement': el.innerHTML = readOnlyBanner() + viewEtablissement(); break;
     case 'classes': el.innerHTML = readOnlyBanner() + viewClasses(); break;
