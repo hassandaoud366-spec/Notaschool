@@ -210,8 +210,31 @@ textarea.code{width:100%; min-height:110px; font-family:"IBM Plex Mono",monospac
 .bilan-annuel td:first-child{color:var(--ink-soft)}
 .bilan-annuel td:last-child{font-weight:700}
 
+/* ---------- Registre d'appel imprimable ---------- */
+.appel-register{max-width:none}
+.appel-head{display:grid; grid-template-columns:1.1fr auto 1.1fr; gap:12px; align-items:stretch; margin-bottom:12px}
+.appel-box{border:1px solid var(--line); border-radius:4px; padding:8px 12px}
+.appel-ecole-nom{font-family:"Fraunces",serif; font-weight:700; font-size:14px}
+.appel-ecole-annee{font-size:11.5px; color:var(--ink-soft); margin-top:2px}
+.appel-titre{display:flex; align-items:center; justify-content:center; font-family:"Fraunces",serif; font-weight:700; font-size:15px; color:var(--accent); text-align:center; white-space:nowrap; padding-inline:18px}
+.appel-dates{display:flex; gap:10px}
+.appel-date-box{flex:1; font-size:12px}
+.appel-date-row{display:flex; align-items:center; gap:6px; margin-bottom:6px}
+.appel-date-row input{border:1px solid var(--line); background:var(--bg); border-radius:6px; padding:3px 6px; font-size:11.5px; font-family:inherit}
+.appel-jour-row{color:var(--ink-soft)}
+.appel-meta{display:flex; justify-content:space-between; gap:16px; font-size:12.5px; margin-bottom:12px; flex-wrap:wrap}
+.appel-table{font-size:10.5px}
+.appel-table th, .appel-table td{border:1px solid var(--line); padding:4px 5px; text-align:center}
+.appel-table thead th{background:var(--accent-soft); color:var(--accent); white-space:nowrap}
+.appel-table tbody td:nth-child(2){text-align:left; white-space:nowrap}
+.appel-table tbody td, .appel-table tfoot td{min-width:16px; height:20px}
+.appel-table tfoot td:first-child{text-align:left; font-weight:700; background:var(--gold-soft); white-space:nowrap}
+.appel-nb{font-size:11.5px; color:var(--ink-soft); margin-top:12px}
+.appel-nb ol{margin:4px 0 0; padding-left:18px}
+
 @media print{
   @page{ size:A4; margin:12mm; }
+  @page appel{ size:A4 landscape; margin:10mm; }
   .topbar, .tabs, .print-hint, .view-head, .panel, .banner{display:none !important}
   body{background:#fff; -webkit-print-color-adjust:exact; print-color-adjust:exact; color-adjust:exact;}
   main, .content-wrap{padding:0; margin:0; max-width:none}
@@ -221,6 +244,7 @@ textarea.code{width:100%; min-height:110px; font-family:"IBM Plex Mono",monospac
   .sheet tr{page-break-inside:avoid; page-break-after:auto}
   .sheet thead{display:table-header-group}
   .sheet-conseil, .bilan-annuel{page-break-inside:avoid}
+  .appel-register{page:appel}
 }
 @media (max-width:640px){
   .sheet{padding:18px}
@@ -230,6 +254,8 @@ textarea.code{width:100%; min-height:110px; font-family:"IBM Plex Mono",monospac
   .sheet-conseil{grid-template-columns:1fr}
   .sheet-conseil .left{border-right:none; border-bottom:1px solid var(--line)}
   .bilan-annuel{flex-direction:column}
+  .appel-head{grid-template-columns:1fr}
+  .appel-dates{flex-direction:column}
 }
 </style>
 
@@ -290,7 +316,7 @@ function identifiantToEmail(identifiant){ return String(identifiant||'').trim().
 /* local-only UI preferences (per browser, never shared) */
 var LS_KEY = "notaschool_ui_prefs_v1";
 function loadUi(){
-  var d = { tab:"etablissement", trimestre:1, classeFiltre:"", notesMatiere:"", bulletinMode:"un", bulletinEleve:"", deleteArmed:"" };
+  var d = { tab:"etablissement", trimestre:1, classeFiltre:"", notesMatiere:"", bulletinMode:"un", bulletinEleve:"", deleteArmed:"", appelMode:"suivi", appelJour1:"", appelJour2:"" };
   try{ var raw = localStorage.getItem(LS_KEY); if(raw) return Object.assign(d, JSON.parse(raw)); }catch(e){}
   return d;
 }
@@ -312,6 +338,7 @@ function uid(){ return Date.now().toString(36) + Math.random().toString(36).slic
 function esc(s){ return (s==null?"":String(s)).replace(/[&<>"']/g, function(c){ return {"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]; }); }
 function todayISO(){ return new Date().toISOString().slice(0,10); }
 function frDate(iso){ if(!iso) return "—"; var p = iso.split("-"); if(p.length!==3) return iso; return p[2]+"-"+p[1]+"-"+p[0]; }
+function addDaysISO(iso, n){ var d = iso ? new Date(iso+"T00:00:00") : new Date(); if(isNaN(d.getTime())) d = new Date(); d.setDate(d.getDate()+n); return d.toISOString().slice(0,10); }
 
 /* ================= boot and authentication ================= */
 function allCoreLoaded(){ return cache.loaded.school && cache.loaded.classes && cache.loaded.eleves && cache.loaded.matieres && cache.loaded.notes && cache.loaded.conseil; }
@@ -955,9 +982,101 @@ function viewAppels(){
   var dis=writeGuardOk()?'':' disabled';
   var classes=clasesTriees(), classeId=ui.classeFiltre||(classes[0]&&classes[0].id)||'';
   var opts=classes.map(function(c){return '<option value="'+c.id+'"'+(c.id===classeId?' selected':'')+'>'+esc(c.nom)+'</option>';}).join('');
-  var date=ui.dateAppel||todayISO(), eleves=classeId?elevesDe(classeId):[];
+  var mode = ui.appelMode || 'suivi';
+  var eleves=classeId?elevesDe(classeId):[];
+
+  var head = '<div class="view-head"><div><h1>Liste d’appel</h1><p>Appel quotidien par classe : suivi numérique au jour le jour, ou registre imprimable à remplir à la main en classe.</p></div></div>'
+    + '<div class="panel"><div class="field-grid">'
+      + '<div class="field"><label>Classe</label><select id="appelClasse">'+opts+'</select></div>'
+      + '<div class="field"><label>Affichage</label><select id="appelMode"><option value="suivi"'+(mode==='suivi'?' selected':'')+'>Suivi quotidien (numérique)</option><option value="registre"'+(mode==='registre'?' selected':'')+'>Registre imprimable</option></select></div>'
+    + '</div></div>';
+
+  if(classes.length===0) return head + '<div class="panel"><div class="empty">Créez d\'abord une classe.</div></div>';
+  if(eleves.length===0) return head + '<div class="panel"><div class="empty">Aucun élève dans cette classe. Créez d’abord une classe et ajoutez ses élèves.</div></div>';
+
+  if(mode==='registre'){
+    return head
+      + '<div class="print-hint"><svg viewBox="0 0 24 24" fill="none"><path d="M6 9V3h12v6M6 18H4a1 1 0 0 1-1-1v-6a1 1 0 0 1 1-1h16a1 1 0 0 1 1 1v6a1 1 0 0 1-1 1h-2M6 14h12v7H6z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></svg><span>Le registre s\'imprime en paysage. Les colonnes horaires et les lignes du bas sont à remplir à la main. <strong class="mono">Ctrl+P</strong> / <strong class="mono">Cmd+P</strong> pour imprimer.</span></div>'
+      + renderAppelRegistre(classeId, eleves);
+  }
+
+  var date=ui.dateAppel||todayISO();
   var rows=eleves.map(function(e){var key=date+'_'+classeId+'_'+e.id, a=cache.appels[key]||{};return '<tr><td>'+esc(e.nom)+'</td><td>'+esc(e.prenom)+'</td><td>'+esc(e.sexe||'—')+'</td><td><select data-appel-eleve="'+e.id+'"'+dis+'><option value="present"'+((a.statut||'present')==='present'?' selected':'')+'>Présent</option><option value="absent"'+(a.statut==='absent'?' selected':'')+'>Absent</option><option value="retard"'+(a.statut==='retard'?' selected':'')+'>Retard</option><option value="justifie"'+(a.statut==='justifie'?' selected':'')+'>Absent justifié</option></select></td></tr>';}).join('');
-  return '<div class="view-head"><div><h1>Liste d’appel</h1><p>Appel quotidien par classe. La date de naissance n’apparaît pas dans ce registre.</p></div></div><div class="panel"><div class="field-grid"><div class="field"><label>Classe</label><select id="appelClasse">'+opts+'</select></div><div class="field"><label>Date</label><input type="date" id="appelDate" value="'+esc(date)+'"'+dis+'></div></div></div><div class="panel"><h2>Présences <span class="count">'+eleves.length+' élèves</span></h2>'+(eleves.length?'<div class="table-wrap"><table><thead><tr><th>Nom</th><th>Prénom</th><th>Sexe</th><th>Présence</th></tr></thead><tbody>'+rows+'</tbody></table></div>':'<div class="empty">Aucun élève dans cette classe. Créez d’abord une classe et ajoutez ses élèves.</div>')+'</div>';
+  return head
+    + '<div class="panel"><div class="field-grid"><div class="field"><label>Date</label><input type="date" id="appelDate" value="'+esc(date)+'"'+dis+'></div></div></div>'
+    + '<div class="panel"><h2>Présences <span class="count">'+eleves.length+' élèves</span></h2><div class="table-wrap"><table><thead><tr><th>Nom</th><th>Prénom</th><th>Sexe</th><th>Présence</th></tr></thead><tbody>'+rows+'</tbody></table></div></div>';
+}
+
+/* Registre d'appel imprimable — reproduit le formulaire papier : 2 jours par page,
+   créneaux Matin (1-5) et Après-midi (6-9), lignes Matières / Absents / Exclus / Émargement
+   laissées vierges pour être remplies à la main. */
+function renderAppelRegistre(classeId, eleves){
+  var dis = writeGuardOk() ? '' : ' disabled';
+  var classe = cache.classes.find(function(c){ return c.id===classeId; }) || {nom:"—", professeurPrincipal:""};
+  var school = cache.school;
+  var jour1 = ui.appelJour1 || todayISO();
+  var jour2 = ui.appelJour2 || addDaysISO(jour1, 1);
+
+  var periodsHead = '<th>1</th><th>2</th><th>3</th><th>4</th><th>5</th><th>6</th><th>7</th><th>8</th><th>9</th>';
+  var blankCells9 = '<td></td><td></td><td></td><td></td><td></td><td></td><td></td><td></td><td></td>';
+
+  var rows = eleves.map(function(e, idx){
+    return '<tr>'
+      + '<td class="num tabnum">'+(idx+1)+'</td>'
+      + '<td style="text-align:left">'+esc((e.nom||'').toUpperCase())+' '+esc(e.prenom)+'</td>'
+      + '<td class="num">'+esc(e.sexe||'—')+'</td>'
+      + '<td class="num tabnum">'+esc(frDate(e.dateNaissance))+'</td>'
+      + '<td class="num">NR</td>'
+      + blankCells9 + blankCells9
+    + '</tr>';
+  }).join('');
+
+  return ''
+  + '<div class="sheet appel-register">'
+    + '<div class="appel-head">'
+      + '<div class="appel-box appel-ecole">'
+        + '<div class="appel-ecole-nom">'+esc((school.nom||'Établissement scolaire').toUpperCase())+'</div>'
+        + '<div class="appel-ecole-annee">Année scolaire '+esc(school.anneeScolaire||'—')+'</div>'
+      + '</div>'
+      + '<div class="appel-box appel-titre">LISTE D\'APPEL</div>'
+      + '<div class="appel-dates">'
+        + '<div class="appel-box appel-date-box">'
+          + '<div class="appel-date-row"><span>DATE :</span><input type="date" data-appel-jour="1" value="'+esc(jour1)+'"'+dis+'></div>'
+          + '<div class="appel-jour-row">JOUR : <strong>1</strong></div>'
+        + '</div>'
+        + '<div class="appel-box appel-date-box">'
+          + '<div class="appel-date-row"><span>DATE :</span><input type="date" data-appel-jour="2" value="'+esc(jour2)+'"'+dis+'></div>'
+          + '<div class="appel-jour-row">JOUR : <strong>2</strong></div>'
+        + '</div>'
+      + '</div>'
+    + '</div>'
+    + '<div class="appel-meta">'
+      + '<div>Professeur principal : <strong>'+esc(classe.professeurPrincipal || '—')+'</strong></div>'
+      + '<div>Classe <strong>'+esc(classe.nom)+'</strong></div>'
+    + '</div>'
+    + '<div class="table-wrap"><table class="appel-table">'
+      + '<thead>'
+        + '<tr><th rowspan="3">N°</th><th rowspan="3">Noms des élèves</th><th rowspan="3">Genre</th><th rowspan="3">Date naiss</th><th rowspan="3">Statut</th><th colspan="9">Jour 1</th><th colspan="9">Jour 2</th></tr>'
+        + '<tr><th colspan="5">Matin</th><th colspan="4">Après-midi</th><th colspan="5">Matin</th><th colspan="4">Après-midi</th></tr>'
+        + '<tr>'+periodsHead+periodsHead+'</tr>'
+      + '</thead>'
+      + '<tbody>'+rows+'</tbody>'
+      + '<tfoot>'
+        + '<tr><td colspan="5">Matières</td>'+blankCells9+blankCells9+'</tr>'
+        + '<tr><td colspan="5">Nombres d\'absents</td>'+blankCells9+blankCells9+'</tr>'
+        + '<tr><td colspan="5">Exclus</td>'+blankCells9+blankCells9+'</tr>'
+        + '<tr><td colspan="5">Émargement du professeur</td>'+blankCells9+blankCells9+'</tr>'
+      + '</tfoot>'
+    + '</table></div>'
+    + '<div class="appel-nb">'
+      + '<strong>NB :</strong>'
+      + '<ol>'
+        + '<li>Prière de faire l\'appel en début de cours.</li>'
+        + '<li>Prière de porter (abs) pour les absences et (ex) pour tout élève exclu du cours.</li>'
+        + '<li>Veuillez remettre la liste des élèves renvoyés à la surveillance, accompagnée du chef de classe.</li>'
+      + '</ol>'
+    + '</div>'
+  + '</div>';
 }
 
 /* ================= view: bulletins ================= */
@@ -1036,7 +1155,7 @@ function renderSheet(e, classeId, tri){
       + '<div class="sheet-doc">'
         + '<div class="titre">Bulletin du Trimestre '+tri+'</div>'
         + '<div class="date">Le '+esc(frDate(dateBulletin))+'</div>'
-        + '<div class="field" style="margin-top:6px"><input type="date" data-sheet-date="'+e.id+'" value="'+esc(dateBulletin)+'" style="font-size:11.5px; padding:4px 6px"'+dis+'></div>'
+        + '<div class="field" style="margin-top:6px; display:none"><input type="date" data-sheet-date="'+e.id+'" value="'+esc(dateBulletin)+'" style="font-size:11.5px; padding:4px 6px"'+dis+'></div>'
       + '</div>'
     + '</div>'
     + '<div class="sheet-id">'
@@ -1067,7 +1186,7 @@ function renderSheet(e, classeId, tri){
       + '</div>'
       + '<div>'
         + '<div class="ttl">Signature &amp; cachet</div>'
-        + '<div class="sig-row"><div class="seal">Cachet<br>de<br>l\'établissement</div></div>'
+        + '<div class="sig-row"></div>'
       + '</div>'
     + '</div>'
   + '</div>';
@@ -1256,7 +1375,7 @@ document.addEventListener('click', function(e){
 
 document.addEventListener('change', function(e){
   var t = e.target;
-  if(!writeGuardOk() && (t.dataset.path || t.dataset.classe || t.dataset.eleve || t.dataset.matiere || t.dataset.noteEleve || t.dataset.appelEleve || t.dataset.conseilEleve || t.dataset.sheetDate || t.id==='logoInput' || t.hasAttribute('data-eleve-photo'))) return;
+  if(!writeGuardOk() && (t.dataset.path || t.dataset.classe || t.dataset.eleve || t.dataset.matiere || t.dataset.noteEleve || t.dataset.appelEleve || t.dataset.appelJour || t.dataset.conseilEleve || t.dataset.sheetDate || t.id==='logoInput' || t.hasAttribute('data-eleve-photo'))) return;
 
   if(t.id === 'importJsonInput' && t.files && t.files[0]){
     var reader = new FileReader();
@@ -1296,6 +1415,8 @@ document.addEventListener('change', function(e){
 
   if(t.id === 'appelClasse'){ui.classeFiltre=t.value;saveUi();render();return;}
   if(t.id === 'appelDate'){ui.dateAppel=t.value;saveUi();render();return;}
+  if(t.id === 'appelMode'){ui.appelMode=t.value;saveUi();render();return;}
+  if(t.dataset.appelJour){ if(t.dataset.appelJour==='1') ui.appelJour1=t.value; else ui.appelJour2=t.value; saveUi(); render(); return; }
   if(t.id === 'filtreClasseEleves' || t.id==='filtreClasseMatieres' || t.id==='notesClasse' || t.id==='bulletinClasse'){ ui.classeFiltre = t.value; saveUi(); render(); return; }
   if(t.id === 'notesMatiere'){ ui.notesMatiere = t.value; saveUi(); render(); return; }
   if(t.id === 'bulletinMode'){ ui.bulletinMode = t.value; saveUi(); render(); return; }
