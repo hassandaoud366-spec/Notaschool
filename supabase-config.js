@@ -4,8 +4,6 @@
 /* Configuration Supabase Notaschool */
 /* Configuration Supabase Notaschool */
 
-window.NOTASCHOOL_SUPABASE_URL =
-"https://eawvzvszcdpvpzamwxxo.supabase.co";
-
-window.NOTASCHOOL_SUPABASE_ANON_KEY =
-"sb_publishable_JpLakuJYvSrU5uRilmhm4A_Bcnr5uIr";
+window.NOTASCHOOL_SUPABASE_URL = "https://eawvzvszcdpvpzamwxxo.supabase.co";
+window.NOTASCHOOL_SUPABASE_ANON_KEY = "sb_publishable_JpLakuJYvSrU5uRilmhm4A_Bcnr5uIr";
+ 
