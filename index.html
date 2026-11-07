@@ -406,21 +406,8 @@ async function boot(){
   if(!SUPABASE_URL || !SUPABASE_ANON_KEY){ showGateError('Configuration manquante : renseignez l’URL du projet et la clé anon/public dans supabase-config.js.'); return; }
   if(!window.supabase || !window.supabase.createClient){ showGateError('Impossible de charger la bibliothèque Supabase. Vérifiez votre connexion Internet.'); return; }
   supabase=window.supabase.createClient(SUPABASE_URL,SUPABASE_ANON_KEY);
-  var sessionResult=await supabase.auth.getSession();
-  if(sessionResult.error){ showGateError(sessionResult.error.message); return; }
-  if(sessionResult.data.session){
-    viewer=sessionResult.data.session.user;
-    try{ await loadSchoolData(); subscribeSchoolData(); }catch(e){ showGateError('Erreur de chargement des données : '+(e.message||e)); }
-  }
-  form.addEventListener('submit',async function(e){
-    e.preventDefault(); var btn=document.getElementById('loginButton'); btn.disabled=true; btn.textContent='Connexion…';
-    var email=document.getElementById('loginEmail').value.trim(), password=document.getElementById('loginPassword').value;
-    var auth=await supabase.auth.signInWithPassword({email:email,password:password});
-    if(auth.error){ showGateError('Échec de connexion : '+auth.error.message); btn.disabled=false; btn.textContent='Se connecter'; return; }
-    viewer=auth.data.user;
-    try{ await loadSchoolData(); subscribeSchoolData(); }catch(err){ showGateError('Erreur de chargement : '+(err.message||err)); btn.disabled=false; btn.textContent='Se connecter'; }
-  });
-    supabase.auth.onAuthStateChange(async function(event, session) {
+
+  supabase.auth.onAuthStateChange(async function(event, session) {
 
     if (event === 'SIGNED_OUT') {
         viewer = null;
@@ -452,6 +439,21 @@ async function boot(){
             location.reload();
         }
     }
+  });
+
+  var sessionResult=await supabase.auth.getSession();
+  if(sessionResult.error){ showGateError(sessionResult.error.message); return; }
+  if(sessionResult.data.session){
+    viewer=sessionResult.data.session.user;
+    try{ await loadSchoolData(); subscribeSchoolData(); }catch(e){ showGateError('Erreur de chargement des données : '+(e.message||e)); }
+  }
+  form.addEventListener('submit',async function(e){
+    e.preventDefault(); var btn=document.getElementById('loginButton'); btn.disabled=true; btn.textContent='Connexion…';
+    var email=document.getElementById('loginEmail').value.trim(), password=document.getElementById('loginPassword').value;
+    var auth=await supabase.auth.signInWithPassword({email:email,password:password});
+    if(auth.error){ showGateError('Échec de connexion : '+auth.error.message); btn.disabled=false; btn.textContent='Se connecter'; return; }
+    viewer=auth.data.user;
+    try{ await loadSchoolData(); subscribeSchoolData(); }catch(err){ showGateError('Erreur de chargement : '+(err.message||err)); btn.disabled=false; btn.textContent='Se connecter'; }
   });
 }
 function onCacheChange(){ flashSync('ok','Synchronisé'); render(); }
