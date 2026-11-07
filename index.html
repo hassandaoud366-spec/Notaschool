@@ -204,12 +204,23 @@ textarea.code{width:100%; min-height:110px; font-family:"IBM Plex Mono",monospac
 .cline input, .cline textarea{border:1px solid var(--line); background:var(--bg); border-radius:6px; padding:4px 7px; font-size:12px; font-family:inherit; width:62%}
 .seal{width:72px; height:72px; border-radius:50%; border:2px solid var(--accent); color:var(--accent); display:flex; align-items:center; justify-content:center; text-align:center; font-size:9px; font-weight:700; text-transform:uppercase; letter-spacing:.02em; margin:0 auto 8px; opacity:.6; transform:rotate(-8deg)}
 .sig-row{display:flex; justify-content:center}
+.bilan-annuel{display:flex; gap:12px; flex-wrap:wrap; margin-top:16px}
+.bilan-annuel .table-wrap{flex:1; min-width:180px}
+.bilan-annuel table{min-width:0}
+.bilan-annuel td:first-child{color:var(--ink-soft)}
+.bilan-annuel td:last-child{font-weight:700}
 
 @media print{
+  @page{ size:A4; margin:12mm; }
   .topbar, .tabs, .print-hint, .view-head, .panel, .banner{display:none !important}
-  body{background:#fff}
+  body{background:#fff; -webkit-print-color-adjust:exact; print-color-adjust:exact; color-adjust:exact;}
   main, .content-wrap{padding:0; margin:0; max-width:none}
-  .sheet{box-shadow:none; border:none; page-break-after:always; margin:0; max-width:none}
+  .sheet{box-shadow:none; border:none; page-break-after:always; margin:0; max-width:none; -webkit-print-color-adjust:exact; print-color-adjust:exact; color-adjust:exact;}
+  .sheet:last-of-type{page-break-after:auto}
+  .sheet table{page-break-inside:auto}
+  .sheet tr{page-break-inside:avoid; page-break-after:auto}
+  .sheet thead{display:table-header-group}
+  .sheet-conseil, .bilan-annuel{page-break-inside:avoid}
 }
 @media (max-width:640px){
   .sheet{padding:18px}
@@ -218,6 +229,7 @@ textarea.code{width:100%; min-height:110px; font-family:"IBM Plex Mono",monospac
   .sheet-id{grid-template-columns:1fr}
   .sheet-conseil{grid-template-columns:1fr}
   .sheet-conseil .left{border-right:none; border-bottom:1px solid var(--line)}
+  .bilan-annuel{flex-direction:column}
 }
 </style>
 
@@ -552,11 +564,12 @@ function setNoteEntry(eleveId, matiereId, trimestre, patch){
 }
 
 function conseilKey(eleveId, trimestre){ return eleveId+"_"+trimestre; }
-function getConseil(eleveId, trimestre){ return cache.conseil[conseilKey(eleveId,trimestre)] || { absences:"0 heure(s)", appreciationGlobale:"", date:"" }; }
+var CONSEIL_DEFAULT = { absences:"0 heure(s)", appreciationGlobale:"", date:"", conduite:"", absencesAnnuelles:"0 heure(s)", decision:"" };
+function getConseil(eleveId, trimestre){ return Object.assign({}, CONSEIL_DEFAULT, cache.conseil[conseilKey(eleveId,trimestre)] || {}); }
 function setConseil(eleveId, trimestre, patch){
   if(!writeGuardOk()) return;
   var key = conseilKey(eleveId, trimestre);
-  var cur = cache.conseil[key] || { absences:"0 heure(s)", appreciationGlobale:"", date:"" };
+  var cur = Object.assign({}, CONSEIL_DEFAULT, cache.conseil[key] || {});
   var merged = Object.assign({}, cur, patch, { eleveId:eleveId, trimestre:trimestre, updatedAt: Date.now(), updatedBy: viewer && viewer.id || null });
   cache.conseil[key] = merged;
   dbSet("conseil", key, merged);
@@ -607,6 +620,23 @@ function statsGenerale(classeId, trimestre){
   var moyClasseGen = valides.length ? valides.reduce(function(a,b){return a+b;},0)/valides.length : null;
   var ranks = computeRanks(eleves.map(function(e){ return {id:e.id, value:generales[e.id]}; }));
   return { generales:generales, moyenneClasse:moyClasseGen, ranks:ranks };
+}
+/* Bilan annuel (Trimestre 3 uniquement) : moyenne de la moyenne générale des 3 trimestres,
+   calculée uniquement à partir des trimestres où l'élève a des notes. */
+function statsAnnuelle(classeId){
+  var eleves = elevesDe(classeId);
+  var g1 = statsGenerale(classeId,1).generales;
+  var g2 = statsGenerale(classeId,2).generales;
+  var g3 = statsGenerale(classeId,3).generales;
+  var annuelles = {};
+  eleves.forEach(function(e){
+    var vals = [g1[e.id], g2[e.id], g3[e.id]].filter(function(v){ return v!=null; });
+    annuelles[e.id] = vals.length ? vals.reduce(function(a,b){return a+b;},0)/vals.length : null;
+  });
+  var valides = eleves.map(function(e){ return annuelles[e.id]; }).filter(function(v){ return v!=null; });
+  var moyClasseAnnuelle = valides.length ? valides.reduce(function(a,b){return a+b;},0)/valides.length : null;
+  var ranks = computeRanks(eleves.map(function(e){ return {id:e.id, value:annuelles[e.id]}; }));
+  return { t1:g1, t2:g2, t3:g3, annuelles:annuelles, moyenneClasse:moyClasseAnnuelle, ranks:ranks };
 }
 
 /* ================= images ================= */
@@ -969,6 +999,7 @@ function renderSheet(e, classeId, tri){
   var effectif = elevesDe(classeId).length;
   var conseil = getConseil(e.id, tri);
   var dateBulletin = conseil.date || todayISO();
+  var annStats = tri===3 ? statsAnnuelle(classeId) : null;
 
   var school = cache.school;
   var crest = school.logo ? '<img class="sheet-crest" src="'+school.logo+'" alt="">' : '<div class="sheet-crest-ph">'+ICONS.etablissement+'</div>';
@@ -979,9 +1010,10 @@ function renderSheet(e, classeId, tri){
     var entry = getNoteEntry(e.id, m.id, tri);
     var moy = st.moyennes[e.id];
     var rang = st.ranks[e.id];
+    var nbNotes = (entry.valeurs||[]).filter(function(v){ return v!==null && v!=='' && typeof v==='number' && !isNaN(v); }).length;
     return '<tr>'
       + '<td><div class="matiere-nom">'+esc(m.nom)+'</div><div class="ens-nom">'+esc(m.enseignant)+'</div></td>'
-      + '<td class="num tabnum">'+entry.valeurs.length+'</td>'
+      + '<td class="num tabnum">'+nbNotes+'</td>'
       + '<td class="num tabnum">'+(rang?ordinal(rang):'—')+'</td>'
       + '<td class="num tabnum">'+fmt(moy)+'</td>'
       + '<td class="num tabnum">'+fmt(st.moyenneClasse)+'</td>'
@@ -1024,17 +1056,45 @@ function renderSheet(e, classeId, tri){
         + '<tfoot><tr><td colspan="2">Moyenne générale</td><td class="num tabnum">'+(rangGen?ordinal(rangGen):'—')+'</td><td class="num tabnum">'+fmt(moyGen)+'</td><td class="num tabnum">'+fmt(gen.moyenneClasse)+'</td><td></td></tr></tfoot>'
         + '</table></div>'
       : '<div class="empty">Aucune matière définie pour cette classe.</div>')
+    + (tri===3 ? renderBilanAnnuel(e, conseil, annStats) : '')
     + '<div class="sheet-conseil">'
       + '<div class="left">'
         + '<div class="ttl">Appréciation du conseil de classe</div>'
         + '<div class="cline"><span>Absences</span><input type="text" data-conseil-eleve="'+e.id+'" data-conseil-field="absences" value="'+esc(conseil.absences)+'"'+dis+'></div>'
         + '<div class="cline" style="align-items:flex-start"><span>Appréciation globale</span><textarea rows="2" data-conseil-eleve="'+e.id+'" data-conseil-field="appreciationGlobale" placeholder="'+esc(suggestAppreciation(moyGen))+'"'+dis+'>'+esc(conseil.appreciationGlobale)+'</textarea></div>'
+        + '<div class="cline"><span>Absences &amp; Conduite</span><input type="text" data-conseil-eleve="'+e.id+'" data-conseil-field="conduite" value="'+esc(conseil.conduite)+'"'+dis+'></div>'
+        + (tri===3 ? '<div class="cline"><span>Décision du conseil de classe</span><input type="text" data-conseil-eleve="'+e.id+'" data-conseil-field="decision" value="'+esc(conseil.decision)+'" placeholder="Ex. Admis(e)"'+dis+'></div>' : '')
       + '</div>'
       + '<div>'
         + '<div class="ttl">Signature &amp; cachet</div>'
         + '<div class="sig-row"><div class="seal">Cachet<br>de<br>l\'établissement</div></div>'
       + '</div>'
     + '</div>'
+  + '</div>';
+}
+
+/* Bloc "Bilan annuel", affiché uniquement sur le bulletin du Trimestre 3.
+   Reprend le modèle papier : absences, récap des 3 trimestres, moyenne générale annuelle. */
+function renderBilanAnnuel(e, conseilT3, annStats){
+  var dis = writeGuardOk() ? '' : ' disabled';
+  var moyAnnuelle = annStats.annuelles[e.id];
+  var rangAnnuel = annStats.ranks[e.id];
+  var t1 = annStats.t1[e.id], t2 = annStats.t2[e.id], t3 = annStats.t3[e.id];
+  return ''
+  + '<div class="bilan-annuel">'
+    + '<div class="table-wrap"><table><tbody>'
+      + '<tr><td>Absences Trimestre 3</td><td class="num tabnum">'+esc(conseilT3.absences)+'</td></tr>'
+      + '<tr><td>Absences Annuelle</td><td class="num"><input type="text" data-conseil-eleve="'+e.id+'" data-conseil-field="absencesAnnuelles" value="'+esc(conseilT3.absencesAnnuelles)+'" style="width:100%; border:1px solid var(--line); background:var(--bg); border-radius:6px; padding:4px 7px; font-size:12px; font-family:inherit; text-align:center"'+dis+'></td></tr>'
+      + '<tr><td>Position de l\'élève</td><td class="num tabnum">'+(rangAnnuel?ordinal(rangAnnuel):'—')+'</td></tr>'
+    + '</tbody></table></div>'
+    + '<div class="table-wrap"><table><tbody>'
+      + '<tr><td>Moyenne Trimestre 1</td><td class="num tabnum">'+fmt(t1)+'</td></tr>'
+      + '<tr><td>Moyenne Trimestre 2</td><td class="num tabnum">'+fmt(t2)+'</td></tr>'
+      + '<tr><td>Moyenne Trimestre 3</td><td class="num tabnum">'+fmt(t3)+'</td></tr>'
+    + '</tbody></table></div>'
+    + '<div class="table-wrap"><table><tbody>'
+      + '<tr><td>Moyenne Générale Annuelle</td><td class="num tabnum">'+fmt(moyAnnuelle)+'</td></tr>'
+    + '</tbody></table></div>'
   + '</div>';
 }
 
