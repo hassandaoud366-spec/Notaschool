@@ -275,9 +275,11 @@ var SUPABASE_ANON_KEY = window.NOTASCHOOL_SUPABASE_ANON_KEY || "";
 /* ================= roles ================= */
 var profile = null; // { role, must_change_password }
 var ROLE_TABS = {
-  admin: ["etablissement","classes","eleves","matieres","notes","appels","bulletins"],
-  secretaire: ["classes","eleves","matieres","appels","bulletins"],
-  enseignant: ["notes","bulletins"]
+  super_admin: ["etablissement","classes","eleves","matieres","notes","appels","bulletins"],
+  school_admin: ["etablissement","classes","eleves","matieres","notes","appels","bulletins"],
+  director: ["etablissement","classes","eleves","matieres","notes","appels","bulletins"],
+  staff: ["classes","eleves","matieres","appels","bulletins"],
+  teacher: ["notes","bulletins"]
 };
 function allowedTabs(){
   if(!profile || !profile.role || !ROLE_TABS[profile.role]) return [];
