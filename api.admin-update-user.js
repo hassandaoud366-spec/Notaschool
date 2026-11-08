@@ -90,7 +90,6 @@ module.exports = async function handler(req, res) {
 
     if (body.actif !== undefined) {
       profilePatch.actif = !!body.actif;
-      // Verrouille réellement la connexion côté Supabase Auth, pas seulement le profil
       const { error: banErr } = await adminClient.auth.admin.updateUserById(userId, {
         ban_duration: body.actif ? 'none' : '876000h'
       });
