@@ -120,15 +120,14 @@ module.exports = async function handler(req, res) {
       return;
     }
 
-    const newUserId = created.user.id;
-
     const { error: insertErr } = await adminClient.from('profiles').insert({
-      id: newUserId,
-      identifiant,
-      role,
-      nom_complet: nomComplet || null,
-      actif: true
-    });
+  id: newUserId,
+  identifiant,
+  email,
+  role,
+  full_name: nomComplet || null,
+  actif: true
+});
 
     if (insertErr) {
       await adminClient.auth.admin.deleteUser(newUserId);
