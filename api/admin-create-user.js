@@ -33,7 +33,7 @@ module.exports = async function handler(req, res) {
     const anonClient = createClient(SUPABASE_URL, ANON_KEY);
     const { data: callerData, error: callerErr } = await anonClient.auth.getUser(token);
     if (callerErr || !callerData || !callerData.user) {
-      res.status(401).json({ error: 'Session invalide.' });
+      res.status(401).json({ error: 'Session invalide : ' + (callerErr ? callerErr.message : 'utilisateur introuvable') });
       return;
     }
     const callerId = callerData.user.id;
@@ -45,8 +45,16 @@ module.exports = async function handler(req, res) {
       .eq('id', callerId)
       .maybeSingle();
 
-    if (profileErr || !callerProfile || callerProfile.role !== 'admin' || !callerProfile.actif) {
-      res.status(403).json({ error: 'Réservé aux administrateurs.' });
+    if (profileErr) {
+      res.status(403).json({ error: 'Réservé aux administrateurs. [diagnostic: erreur lecture profil — ' + profileErr.message + ']' });
+      return;
+    }
+    if (!callerProfile) {
+      res.status(403).json({ error: 'Réservé aux administrateurs. [diagnostic: aucun profil trouvé pour id=' + callerId + ']' });
+      return;
+    }
+    if (callerProfile.role !== 'admin' || !callerProfile.actif) {
+      res.status(403).json({ error: 'Réservé aux administrateurs. [diagnostic: role=' + callerProfile.role + ', actif=' + callerProfile.actif + ']' });
       return;
     }
 
