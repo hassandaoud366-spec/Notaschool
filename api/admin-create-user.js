@@ -1,6 +1,5 @@
 // Fonction serveur Vercel : création d'un compte utilisateur par un administrateur.
-// Utilise la clé service_role (jamais exposée au navigateur) pour créer le compte
-// via l'API Admin de Supabase, après avoir vérifié que l'appelant est bien admin.
+// Version avec diagnostics temporaires (aucune clé complète n'est jamais affichée).
 
 const { createClient } = require('@supabase/supabase-js');
 
@@ -11,14 +10,19 @@ const ANON_KEY = process.env.SUPABASE_ANON_KEY;
 const ROLES_VALIDES = ['admin', 'directeur', 'enseignant', 'secretaire'];
 const IDENTIFIANT_DOMAIN = '@notaschool.internal';
 
+function maskKey(k) {
+  if (!k) return null;
+  return k.slice(0, 12) + '...(' + k.length + ' caractères)...' + k.slice(-4);
+}
+
 module.exports = async function handler(req, res) {
   if (req.method !== 'POST') {
     res.status(405).json({ error: 'Méthode non autorisée.' });
     return;
   }
 
-    if (!SUPABASE_URL || !SERVICE_ROLE_KEY || !ANON_KEY) {
-    res.status(500).json({ error: "Configuration manquante. [diagnostic: URL=" + (!!SUPABASE_URL) + ", SERVICE_ROLE_KEY=" + (!!SERVICE_ROLE_KEY) + ", ANON_KEY=" + (!!ANON_KEY) + "]" });
+  if (!SUPABASE_URL || !SERVICE_ROLE_KEY || !ANON_KEY) {
+    res.status(500).json({ error: "Configuration manquante.", diag: { url: SUPABASE_URL, hasService: !!SERVICE_ROLE_KEY, hasAnon: !!ANON_KEY } });
     return;
   }
 
@@ -39,22 +43,44 @@ module.exports = async function handler(req, res) {
     const callerId = callerData.user.id;
 
     const adminClient = createClient(SUPABASE_URL, SERVICE_ROLE_KEY);
+
+    // Diagnostic A : la clé service_role est-elle valide pour l'API Admin Auth (GoTrue) ?
+    let adminAuthOk = null, adminAuthErr = null;
+    try {
+      const { error: listErr } = await adminClient.auth.admin.listUsers({ perPage: 1 });
+      adminAuthOk = !listErr;
+      adminAuthErr = listErr ? listErr.message : null;
+    } catch (e) {
+      adminAuthOk = false;
+      adminAuthErr = e.message;
+    }
+
+    // Diagnostic B : la requête Postgres (PostgREST) sur profiles
     const { data: callerProfile, error: profileErr } = await adminClient
       .from('profiles')
       .select('role, actif')
       .eq('id', callerId)
       .maybeSingle();
 
-    if (profileErr) {
-      res.status(403).json({ error: 'Réservé aux administrateurs. [diagnostic: erreur lecture profil — ' + profileErr.message + ']' });
-      return;
-    }
-    if (!callerProfile) {
-      res.status(403).json({ error: 'Réservé aux administrateurs. [diagnostic: aucun profil trouvé pour id=' + callerId + ']' });
-      return;
-    }
-    if (callerProfile.role !== 'admin' || !callerProfile.actif) {
-      res.status(403).json({ error: 'Réservé aux administrateurs. [diagnostic: role=' + callerProfile.role + ', actif=' + callerProfile.actif + ']' });
+    if (profileErr || !callerProfile || callerProfile.role !== 'admin' || !callerProfile.actif) {
+      res.status(403).json({
+        error: 'Réservé aux administrateurs.',
+        diag: {
+          projectUrl: SUPABASE_URL,
+          serviceKeyPreview: maskKey(SERVICE_ROLE_KEY),
+          anonKeyPreview: maskKey(ANON_KEY),
+          callerId: callerId,
+          adminAuthApiOk: adminAuthOk,
+          adminAuthApiErr: adminAuthErr,
+          profileQuery: {
+            error: profileErr ? profileErr.message : null,
+            code: profileErr ? profileErr.code : null,
+            details: profileErr ? profileErr.details : null,
+            hint: profileErr ? profileErr.hint : null,
+            foundProfile: callerProfile
+          }
+        }
+      });
       return;
     }
 
