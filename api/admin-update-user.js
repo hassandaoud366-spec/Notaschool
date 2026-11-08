@@ -1,6 +1,6 @@
-// Fonction serveur Vercel : création d'un compte utilisateur par un administrateur.
-// Utilise la clé service_role (jamais exposée au navigateur) pour créer le compte
-// via l'API Admin de Supabase, après avoir vérifié que l'appelant est bien admin.
+// Fonction serveur Vercel : modification d'un compte utilisateur par un administrateur.
+// Réinitialisation de mot de passe, changement de rôle, activation/désactivation,
+// mise à jour du nom complet. Protégée de la même façon que admin-create-user.js.
 
 const { createClient } = require('@supabase/supabase-js');
 
@@ -9,7 +9,6 @@ const SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
 const ANON_KEY = process.env.SUPABASE_ANON_KEY;
 
 const ROLES_VALIDES = ['admin', 'directeur', 'enseignant', 'secretaire'];
-const IDENTIFIANT_DOMAIN = '@notaschool.internal';
 
 module.exports = async function handler(req, res) {
   if (req.method !== 'POST') {
@@ -23,7 +22,6 @@ module.exports = async function handler(req, res) {
   }
 
   try {
-    // 1. Vérifier que l'appelant est authentifié
     const authHeader = req.headers.authorization || '';
     const token = authHeader.startsWith('Bearer ') ? authHeader.slice(7) : '';
     if (!token) {
@@ -39,7 +37,6 @@ module.exports = async function handler(req, res) {
     }
     const callerId = callerData.user.id;
 
-    // 2. Vérifier que l'appelant est bien un admin actif (lecture via service_role, hors RLS)
     const adminClient = createClient(SUPABASE_URL, SERVICE_ROLE_KEY);
     const { data: callerProfile, error: profileErr } = await adminClient
       .from('profiles')
@@ -52,63 +49,64 @@ module.exports = async function handler(req, res) {
       return;
     }
 
-    // 3. Valider les données reçues
     const body = req.body && typeof req.body === 'object' ? req.body : JSON.parse(req.body || '{}');
-    const identifiant = (body.identifiant || '').trim();
-    const password = body.password || '';
-    const role = body.role || '';
-    const nomComplet = (body.nomComplet || '').trim();
-
-    if (!/^[A-Za-z0-9_-]{3,32}$/.test(identifiant)) {
-      res.status(400).json({ error: 'Identifiant invalide (3 à 32 caractères : lettres, chiffres, - ou _).' });
-      return;
-    }
-    if (String(password).length < 6) {
-      res.status(400).json({ error: 'Le mot de passe doit contenir au moins 6 caractères.' });
-      return;
-    }
-    if (ROLES_VALIDES.indexOf(role) === -1) {
-      res.status(400).json({ error: 'Rôle invalide.' });
+    const userId = body.userId;
+    if (!userId) {
+      res.status(400).json({ error: 'Utilisateur manquant.' });
       return;
     }
 
-    const email = identifiant.toLowerCase() + IDENTIFIANT_DOMAIN;
-
-    // 4. Créer le compte Supabase Auth (email interne, jamais utilisé pour envoyer de vrais e-mails)
-    const { data: created, error: createErr } = await adminClient.auth.admin.createUser({
-      email,
-      password,
-      email_confirm: true,
-      user_metadata: { identifiant }
-    });
-
-    if (createErr) {
-      const msg = /already registered|already exists/i.test(createErr.message)
-        ? 'Cet identifiant est déjà utilisé.'
-        : ('Création impossible : ' + createErr.message);
-      res.status(400).json({ error: msg });
+    if (userId === callerId && body.actif === false) {
+      res.status(400).json({ error: 'Vous ne pouvez pas désactiver votre propre compte.' });
       return;
     }
 
-    const newUserId = created.user.id;
-
-    // 5. Créer la ligne de profil (rôle, identifiant)
-    const { error: insertErr } = await adminClient.from('profiles').insert({
-      id: newUserId,
-      identifiant,
-      role,
-      nom_complet: nomComplet || null,
-      actif: true
-    });
-
-    if (insertErr) {
-      // Annule la création du compte Auth si le profil n'a pas pu être créé, pour éviter un compte orphelin
-      await adminClient.auth.admin.deleteUser(newUserId);
-      res.status(400).json({ error: "Profil non créé, opération annulée : " + insertErr.message });
-      return;
+    if (body.password !== undefined) {
+      if (String(body.password).length < 6) {
+        res.status(400).json({ error: 'Mot de passe trop court (6 caractères minimum).' });
+        return;
+      }
+      const { error } = await adminClient.auth.admin.updateUserById(userId, { password: body.password });
+      if (error) {
+        res.status(400).json({ error: 'Échec de la réinitialisation : ' + error.message });
+        return;
+      }
     }
 
-    res.status(200).json({ ok: true, id: newUserId, identifiant, role });
+    const profilePatch = {};
+
+    if (body.role !== undefined) {
+      if (ROLES_VALIDES.indexOf(body.role) === -1) {
+        res.status(400).json({ error: 'Rôle invalide.' });
+        return;
+      }
+      profilePatch.role = body.role;
+    }
+
+    if (body.nomComplet !== undefined) {
+      profilePatch.nom_complet = String(body.nomComplet).trim() || null;
+    }
+
+    if (body.actif !== undefined) {
+      profilePatch.actif = !!body.actif;
+      const { error: banErr } = await adminClient.auth.admin.updateUserById(userId, {
+        ban_duration: body.actif ? 'none' : '876000h'
+      });
+      if (banErr) {
+        res.status(400).json({ error: 'Échec de mise à jour du statut : ' + banErr.message });
+        return;
+      }
+    }
+
+    if (Object.keys(profilePatch).length) {
+      const { error: updErr } = await adminClient.from('profiles').update(profilePatch).eq('id', userId);
+      if (updErr) {
+        res.status(400).json({ error: 'Profil non mis à jour : ' + updErr.message });
+        return;
+      }
+    }
+
+    res.status(200).json({ ok: true });
   } catch (err) {
     res.status(500).json({ error: 'Erreur serveur : ' + (err && err.message ? err.message : String(err)) });
   }
