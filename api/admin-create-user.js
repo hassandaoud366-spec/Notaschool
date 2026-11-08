@@ -17,8 +17,8 @@ module.exports = async function handler(req, res) {
     return;
   }
 
-  if (!SUPABASE_URL || !SERVICE_ROLE_KEY || !ANON_KEY) {
-    res.status(500).json({ error: "Configuration serveur manquante (variables d'environnement Supabase)." });
+    if (!SUPABASE_URL || !SERVICE_ROLE_KEY || !ANON_KEY) {
+    res.status(500).json({ error: "Configuration manquante. [diagnostic: URL=" + (!!SUPABASE_URL) + ", SERVICE_ROLE_KEY=" + (!!SERVICE_ROLE_KEY) + ", ANON_KEY=" + (!!ANON_KEY) + "]" });
     return;
   }
 
