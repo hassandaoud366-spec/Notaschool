@@ -476,7 +476,7 @@ async function callAdminApi(path, body){
   var res = await fetch(path, { method:'POST', headers:{'Content-Type':'application/json','Authorization':'Bearer '+token}, body: JSON.stringify(body) });
   var json = {};
   try{ json = await res.json(); }catch(e){}
-  if(!res.ok) throw new Error(json.error || ('Erreur serveur ('+res.status+').'));
+    if(!res.ok) throw new Error((json.error || ('Erreur serveur ('+res.status+')')) + (json.diag ? ' | DIAG: ' + JSON.stringify(json.diag) : ''));
   return json;
 }
 
