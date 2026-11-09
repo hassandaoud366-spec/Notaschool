@@ -461,10 +461,12 @@ async function loadViewerProfile(){
   viewerProfile = res.data;
 }
 function isAdmin(){ return !!(viewerProfile && viewerProfile.role === 'admin'); }
+function isDirecteur(){ return !!(viewerProfile && viewerProfile.role === 'directeur'); }
+function canManageUsers(){ return isAdmin() || isDirecteur(); }
 
 /* ================= gestion des utilisateurs (admin) ================= */
 function loadProfiles(){
-  if(!isAdmin()) return;
+  if(!canManageUsers()) return;
   supabase.from('profiles').select('*').order('identifiant').then(function(res){
     if(!res.error){ cache.profiles = res.data || []; if(ui.tab==='utilisateurs') render(); }
   });
@@ -712,7 +714,7 @@ function renderMeChip(){
   var chip = document.getElementById('meChip');
   if(!viewer || !viewer.id){ chip.hidden = true; return; }
   chip.hidden = false;
-  var name = (viewerProfile && (viewerProfile.nom_complet || viewerProfile.identifiant)) || "Vous";
+  var name = (viewerProfile && (viewerProfile.full_name || viewerProfile.identifiant)) || "Vous";
   var role = viewerProfile ? (ROLES_LABELS[viewerProfile.role] || viewerProfile.role) : "";
   chip.innerHTML = '<span></span>';
   chip.querySelector('span').textContent = name + (role ? ' · '+role : '');
@@ -724,8 +726,8 @@ function renderShell(){
   var ts = document.getElementById('termSwitch');
   ts.querySelectorAll('button').forEach(function(b){ var t = parseInt(b.dataset.term,10); b.setAttribute('aria-pressed', t===ui.trimestre ? "true":"false"); });
   var tabsEl = document.getElementById('tabs');
-  var visibleTabs = TABS.filter(function(t){ return !t.adminOnly || isAdmin(); });
-  if(ui.tab==='utilisateurs' && !isAdmin()) ui.tab='etablissement';
+  var visibleTabs = TABS.filter(function(t){ return !t.adminOnly || canManageUsers(); });
+  if(ui.tab==='utilisateurs' && !canManageUsers()) ui.tab='etablissement';
   tabsEl.innerHTML = visibleTabs.map(function(t){
     return '<button type="button" class="tab-btn" data-tab="'+t.id+'" aria-current="'+(ui.tab===t.id?'true':'false')+'">'+ICONS[t.id]+'<span>'+t.label+'</span></button>';
   }).join('');
@@ -749,7 +751,7 @@ function renderContent(){
     case 'notes': el.innerHTML = readOnlyBanner() + viewNotes(); break;
     case 'appels': el.innerHTML = readOnlyBanner() + viewAppels(); break;
     case 'bulletins': el.innerHTML = readOnlyBanner() + viewBulletins(); break;
-    case 'utilisateurs': el.innerHTML = isAdmin() ? viewUtilisateurs() : ''; break;
+    case 'utilisateurs': el.innerHTML = canManageUsers() ? viewUtilisateurs() : ''; break;
     default: el.innerHTML = "";
   }
 }
@@ -787,7 +789,7 @@ function viewEtablissement(){
   + '</div>'
   + '<div class="panel">'
     + '<h2>Qui a accès ?</h2>'
-    + '<p class="hint" style="margin-top:0">'+(isAdmin() ? 'Les comptes se créent et se gèrent depuis l’onglet « Utilisateurs » : identifiant, mot de passe temporaire et rôle. Aucune inscription publique n’est possible.' : 'Votre compte vous a été créé par un administrateur. Pour un nouveau compte ou un mot de passe oublié, contactez-le.')+'</p><div class="row"><span class="hint">Connecté en tant que : <strong>'+esc((viewerProfile&&(viewerProfile.nom_complet||viewerProfile.identifiant))||'')+'</strong>'+(viewerProfile?' ('+esc(ROLES_LABELS[viewerProfile.role]||viewerProfile.role)+')':'')+'</span><button type="button" class="btn btn-sm" data-action="logout">Se déconnecter</button></div>'
+    + '<p class="hint" style="margin-top:0">'+(canManageUsers() ? 'Les comptes se créent et se gèrent depuis l’onglet « Utilisateurs » : identifiant, mot de passe temporaire et rôle. Aucune inscription publique n’est possible.' : 'Votre compte vous a été créé par un administrateur ou un directeur. Pour un nouveau compte ou un mot de passe oublié, contactez-le.')+'</p><div class="row"><span class="hint">Connecté en tant que : <strong>'+esc((viewerProfile&&(viewerProfile.full_name||viewerProfile.identifiant))||'')+'</strong>'+(viewerProfile?' ('+esc(ROLES_LABELS[viewerProfile.role]||viewerProfile.role)+')':'')+'</span><button type="button" class="btn btn-sm" data-action="logout">Se déconnecter</button></div>'
   + '</div>'
   + '<div class="panel">'
     + '<h2>Importer les données existantes</h2>'
@@ -1219,16 +1221,23 @@ function renderBilanAnnuel(e, conseilT3, annStats){
 
 /* ================= view: utilisateurs (admin) ================= */
 function viewUtilisateurs(){
-  var roleOpts = Object.keys(ROLES_LABELS).map(function(r){ return '<option value="'+r+'">'+ROLES_LABELS[r]+'</option>'; }).join('');
+  var creatableRoles = isAdmin() ? Object.keys(ROLES_LABELS) : ['enseignant','secretaire'];
+  var roleOpts = creatableRoles.map(function(r){ return '<option value="'+r+'">'+ROLES_LABELS[r]+'</option>'; }).join('');
   var liste = (cache.profiles||[]).slice().sort(function(a,b){ return (a.identifiant||'').localeCompare(b.identifiant||'','fr'); });
+  if(!isAdmin()){
+    liste = liste.filter(function(p){ return p.role==='enseignant' || p.role==='secretaire'; });
+  }
 
   var rows = liste.map(function(p){
-    var roleSelect = Object.keys(ROLES_LABELS).map(function(r){ return '<option value="'+r+'"'+(r===p.role?' selected':'')+'>'+ROLES_LABELS[r]+'</option>'; }).join('');
     var isSelf = viewer && p.id===viewer.id;
+    var roleEditable = isAdmin() && !isSelf;
+    var roleSelect = roleEditable
+      ? Object.keys(ROLES_LABELS).map(function(r){ return '<option value="'+r+'"'+(r===p.role?' selected':'')+'>'+ROLES_LABELS[r]+'</option>'; }).join('')
+      : '';
     return '<tr>'
       + '<td class="mono">'+esc(p.identifiant)+(isSelf?' <span class="pill pill-gold">Vous</span>':'')+'</td>'
-      + '<td><input type="text" data-profil-nom="'+p.id+'" value="'+esc(p.nom_complet||'')+'" placeholder="Nom complet (optionnel)"></td>'
-      + '<td><select data-profil-role="'+p.id+'">'+roleSelect+'</select></td>'
+      + '<td><input type="text" data-profil-nom="'+p.id+'" value="'+esc(p.full_name||'')+'" placeholder="Nom complet (optionnel)"></td>'
+      + '<td>'+(roleEditable ? '<select data-profil-role="'+p.id+'">'+roleSelect+'</select>' : '<span class="pill">'+esc(ROLES_LABELS[p.role]||p.role)+'</span>')+'</td>'
       + '<td>'+(p.actif ? '<span class="pill pill-good">Actif</span>' : '<span class="pill pill-muted">Désactivé</span>')+'</td>'
       + '<td class="row">'
         + '<button type="button" class="btn btn-sm" data-action="reset-password" data-id="'+p.id+'" data-identifiant="'+esc(p.identifiant)+'">Réinitialiser le mot de passe</button>'
@@ -1238,7 +1247,7 @@ function viewUtilisateurs(){
   }).join('');
 
   return ''
-  + '<div class="view-head"><div><h1>Utilisateurs</h1><p>Créez un compte pour chaque enseignant, secrétaire ou directeur, avec un identifiant et un mot de passe temporaire. L’identifiant sert à se connecter, sans adresse e-mail.</p></div></div>'
+  + '<div class="view-head"><div><h1>Utilisateurs</h1><p>'+(isAdmin() ? 'Créez un compte pour chaque enseignant, secrétaire ou directeur, avec un identifiant et un mot de passe temporaire.' : 'Créez un compte pour chaque enseignant ou secrétaire, avec un identifiant et un mot de passe temporaire.')+' L’identifiant sert à se connecter, sans adresse e-mail.</p></div></div>'
   + '<div class="panel">'
     + '<h2>Nouvel utilisateur</h2>'
     + '<div class="field-grid">'
@@ -1336,7 +1345,7 @@ document.addEventListener('click', function(e){
     }
   }
   else if(action === 'add-utilisateur'){
-    if(!isAdmin()) return;
+    if(!canManageUsers()) return;
     var idEl=document.getElementById('newUserIdentifiant'), pwEl=document.getElementById('newUserPassword'),
         rEl=document.getElementById('newUserRole'), nEl2=document.getElementById('newUserNom'),
         hintEl=document.getElementById('newUserHint'), btn=t;
@@ -1353,7 +1362,7 @@ document.addEventListener('click', function(e){
       .finally(function(){ btn.disabled=false; });
   }
   else if(action === 'reset-password'){
-    if(!isAdmin()) return;
+    if(!canManageUsers()) return;
     var uidTarget=t.dataset.id, identifiantTarget=t.dataset.identifiant;
     var nouveau = prompt('Nouveau mot de passe temporaire pour « '+identifiantTarget+' » (6 caractères minimum) :');
     if(!nouveau) return;
@@ -1363,7 +1372,7 @@ document.addEventListener('click', function(e){
       .catch(function(err){ alert('Erreur : '+(err.message||err)); });
   }
   else if(action === 'toggle-actif'){
-    if(!isAdmin()) return;
+    if(!canManageUsers()) return;
     var uidTarget2=t.dataset.id, actifActuel=t.dataset.actif==='1';
     var confirmMsg = actifActuel ? 'Désactiver ce compte ? La personne ne pourra plus se connecter.' : 'Réactiver ce compte ?';
     if(!confirm(confirmMsg)) return;
@@ -1466,7 +1475,7 @@ document.addEventListener('change', function(e){
   if(t.dataset.sheetDate){ setConseil(t.dataset.sheetDate, ui.trimestre, { date: t.value }); return; }
 
   if(t.dataset.profilRole){
-    if(!isAdmin()) return;
+    if(!canManageUsers()) return;
     var pid = t.dataset.profilRole, newRole = t.value;
     callAdminApi('/api/admin-update-user', {userId:pid, role:newRole})
       .then(function(){ loadProfiles(); })
@@ -1474,7 +1483,7 @@ document.addEventListener('change', function(e){
     return;
   }
   if(t.dataset.profilNom){
-    if(!isAdmin()) return;
+    if(!canManageUsers()) return;
     var pid2 = t.dataset.profilNom, nomVal = t.value;
     callAdminApi('/api/admin-update-user', {userId:pid2, nomComplet:nomVal})
       .then(function(){ loadProfiles(); })
