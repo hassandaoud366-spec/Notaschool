@@ -44,8 +44,8 @@ module.exports = async function handler(req, res) {
       .eq('id', callerId)
       .maybeSingle();
 
-    if (profileErr || !callerProfile || callerProfile.role !== 'admin' || !callerProfile.actif) {
-      res.status(403).json({ error: 'Réservé aux administrateurs.' });
+    if (profileErr || !callerProfile || !callerProfile.actif || (callerProfile.role !== 'admin' && callerProfile.role !== 'directeur')) {
+      res.status(403).json({ error: 'Réservé aux administrateurs et directeurs.' });
       return;
     }
 
@@ -59,6 +59,19 @@ module.exports = async function handler(req, res) {
     if (userId === callerId && body.actif === false) {
       res.status(400).json({ error: 'Vous ne pouvez pas désactiver votre propre compte.' });
       return;
+    }
+
+    if (callerProfile.role === 'directeur') {
+      const { data: targetProfile, error: targetErr } = await adminClient
+        .from('profiles').select('role').eq('id', userId).maybeSingle();
+      if (targetErr || !targetProfile || (targetProfile.role !== 'enseignant' && targetProfile.role !== 'secretaire')) {
+        res.status(403).json({ error: 'Un directeur ne peut gérer que les comptes Enseignant ou Secrétaire.' });
+        return;
+      }
+      if (body.role !== undefined && body.role !== 'enseignant' && body.role !== 'secretaire') {
+        res.status(403).json({ error: 'Un directeur ne peut attribuer que le rôle Enseignant ou Secrétaire.' });
+        return;
+      }
     }
 
     if (body.password !== undefined) {
@@ -84,7 +97,7 @@ module.exports = async function handler(req, res) {
     }
 
     if (body.nomComplet !== undefined) {
-      profilePatch.nom_complet = String(body.nomComplet).trim() || null;
+      profilePatch.full_name = String(body.nomComplet).trim() || null;
     }
 
     if (body.actif !== undefined) {
