@@ -159,6 +159,7 @@ textarea.code{width:100%; min-height:110px; font-family:"IBM Plex Mono",monospac
 .banner svg{width:16px; height:16px; flex:none}
 .banner-info{background:var(--accent-soft); color:var(--accent)}
 .banner-warn{background:var(--warn-soft); color:var(--warn)}
+tr.row-absent{background:var(--warn-soft)}
 
 /* ---------- Access / loading gate ---------- */
 .gate{min-height:100%; display:flex; align-items:center; justify-content:center; padding:32px max(16px, env(safe-area-inset-left,0px))}
@@ -316,7 +317,8 @@ function identifiantToEmail(identifiant){ return String(identifiant||'').trim().
 /* local-only UI preferences (per browser, never shared) */
 var LS_KEY = "notaschool_ui_prefs_v1";
 function loadUi(){
-  var d = { tab:"etablissement", trimestre:1, classeFiltre:"", notesMatiere:"", bulletinMode:"un", bulletinEleve:"", deleteArmed:"", appelMode:"suivi", appelJour1:"", appelJour2:"" };
+  var d = { tab:"etablissement", trimestre:1, classeFiltre:"", notesMatiere:"", bulletinMode:"un", bulletinEleve:"", deleteArmed:"", appelMode:"suivi", appelJour1:"", appelJour2:"",
+    absDashEleve:"", absDashClasse:"", absDashDateDebut:"", absDashDateFin:"", absDashTrimestre:"", absDashJustifiee:"" };
   try{ var raw = localStorage.getItem(LS_KEY); if(raw) return Object.assign(d, JSON.parse(raw)); }catch(e){}
   return d;
 }
@@ -324,6 +326,7 @@ function saveUi(){ try{ localStorage.setItem(LS_KEY, JSON.stringify(ui)); }catch
 var ui = loadUi();
 
 /* ================= shared cache, fed by live snapshots ================= */
+var appelSelection = {};
 var cache = {
   school: { nom:"CEM-Lycée de Bouya", telephone:"", email:"", anneeScolaire:"" },
   classes: [], eleves: [], matieres: [],
@@ -339,6 +342,15 @@ function esc(s){ return (s==null?"":String(s)).replace(/[&<>"']/g, function(c){ 
 function todayISO(){ return new Date().toISOString().slice(0,10); }
 function frDate(iso){ if(!iso) return "—"; var p = iso.split("-"); if(p.length!==3) return iso; return p[2]+"-"+p[1]+"-"+p[0]; }
 function addDaysISO(iso, n){ var d = iso ? new Date(iso+"T00:00:00") : new Date(); if(isNaN(d.getTime())) d = new Date(); d.setDate(d.getDate()+n); return d.toISOString().slice(0,10); }
+/* Trimestre déduit du mois de la date : Trim1 sept-nov, Trim2 déc-fév, Trim3 mars-mai. */
+function trimestreFromDate(iso){
+  if(!iso) return null;
+  var m = parseInt(String(iso).split("-")[1],10);
+  if(m===9||m===10||m===11) return 1;
+  if(m===12||m===1||m===2) return 2;
+  if(m===3||m===4||m===5) return 3;
+  return null;
+}
 
 /* ================= boot and authentication ================= */
 function allCoreLoaded(){ return cache.loaded.school && cache.loaded.classes && cache.loaded.eleves && cache.loaded.matieres && cache.loaded.notes && cache.loaded.conseil; }
@@ -352,7 +364,7 @@ function revealShell(){
   if(firstPaintDone) return; firstPaintDone=true;
   document.getElementById('gate').hidden=true; document.getElementById('shell').hidden=false;
   renderMeChip(); render();
-  if(isAdmin()) loadProfiles();
+  if(canManageUsers()) loadProfiles();
 }
 function markAllLoaded(){ cache.loaded={school:true,classes:true,eleves:true,matieres:true,notes:true,conseil:true}; }
 function payloadFromCache(){ return {school:cache.school,classes:cache.classes,eleves:cache.eleves,matieres:cache.matieres,notes:cache.notes,conseil:cache.conseil,appels:cache.appels}; }
@@ -604,6 +616,56 @@ function setConseil(eleveId, trimestre, patch){
   dbSet("conseil", key, merged);
 }
 
+/* ================= appels / absences enrichis ================= */
+var ABSENCE_MOTIFS = { maladie:"Maladie", autorisation:"Autorisation parentale", autre:"Autre" };
+var JUSTIF_STATUTS = { en_attente:"En attente", valide:"Validé", refuse:"Refusé" };
+function appelKey(date, classeId, eleveId){ return date+"_"+classeId+"_"+eleveId; }
+function getAppel(date, classeId, eleveId){
+  var a = cache.appels[appelKey(date,classeId,eleveId)];
+  if(!a) return { date:date, classeId:classeId, eleveId:eleveId, statut:'present', periode:'journee', justifiee:false, motif:'', observation:'', piece:null, justificatifStatut:'en_attente' };
+  var statutBrut = a.statut || 'present';
+  return {
+    date: a.date||date, classeId: a.classeId||classeId, eleveId: a.eleveId||eleveId,
+    statut: statutBrut==='justifie' ? 'absent' : statutBrut,
+    periode: a.periode || 'journee',
+    justifiee: statutBrut==='justifie' ? true : !!a.justifiee,
+    motif: a.motif || '',
+    observation: a.observation || '',
+    piece: a.piece || null,
+    justificatifStatut: a.justificatifStatut || 'en_attente'
+  };
+}
+function setAppel(date, classeId, eleveId, patch){
+  if(!writeGuardOk()) return;
+  var cur = getAppel(date, classeId, eleveId);
+  var merged = Object.assign({}, cur, patch, { date:date, classeId:classeId, eleveId:eleveId, anneeScolaire: (cache.school&&cache.school.anneeScolaire)||'' });
+  cache.appels[appelKey(date,classeId,eleveId)] = merged;
+  dbSet("appels", appelKey(date,classeId,eleveId), merged);
+}
+function joursDePeriode(periode){ return periode==='journee' ? 1 : 0.5; }
+function fmtJours(n){ n = Math.round(n*2)/2; var txt = (n===Math.floor(n)) ? String(n) : n.toFixed(1); return txt+' j'; }
+/* Liste des absences d'un élève (toutes classes confondues), filtrée par trimestre si fourni. */
+function absencesEleve(eleveId, trimestre){
+  var out = [];
+  Object.keys(cache.appels).forEach(function(key){
+    var raw = cache.appels[key];
+    if(!raw || raw.eleveId!==eleveId) return;
+    var statutBrut = raw.statut || 'present';
+    if(statutBrut!=='absent' && statutBrut!=='justifie') return;
+    var tri = trimestreFromDate(raw.date);
+    if(trimestre && tri!==trimestre) return;
+    out.push(Object.assign({ trimestre:tri }, getAppel(raw.date, raw.classeId, raw.eleveId)));
+  });
+  out.sort(function(a,b){ return (a.date||'').localeCompare(b.date||''); });
+  return out;
+}
+function calcAbsencesEleve(eleveId, trimestre){
+  var liste = absencesEleve(eleveId, trimestre);
+  var justifiees=0, nonJustifiees=0;
+  liste.forEach(function(a){ var j=joursDePeriode(a.periode); if(a.justifiee) justifiees+=j; else nonJustifiees+=j; });
+  return { justifiees:justifiees, nonJustifiees:nonJustifiees, total:justifiees+nonJustifiees, liste:liste };
+}
+
 function moyenne(valeurs){ if(!valeurs || valeurs.length===0) return null; var propres=valeurs.filter(function(v){return v!==null && v!=='' && typeof v==='number' && !isNaN(v);}); if(!propres.length)return null; var sum=propres.reduce(function(a,b){return a+b;},0); return sum/propres.length; }
 function round2(n){ return Math.round(n*100)/100; }
 function fmt(n){ return n==null ? "—" : round2(n).toFixed(2); }
@@ -685,6 +747,23 @@ function resizeImage(file, maxW, cb){
   };
   reader.onerror = function(){ cb(""); };
   reader.readAsDataURL(file);
+}
+/* Pièce jointe de justificatif : image (compressée) ou PDF (taille limitée). */
+function filePieceToDataUrl(file, cb){
+  var MAX_BYTES = 1500000;
+  if(!file){ cb(null); return; }
+  if(file.size > MAX_BYTES){ alert('Fichier trop volumineux (max 1,5 Mo). Choisissez une photo plus légère ou un PDF compressé.'); cb(null); return; }
+  if(/^image\//.test(file.type)){
+    resizeImage(file, 1000, function(dataUrl){ cb(dataUrl ? {name:file.name, type:'image', dataUrl:dataUrl} : null); });
+  } else if(file.type==='application/pdf'){
+    var reader = new FileReader();
+    reader.onload = function(){ cb({name:file.name, type:'pdf', dataUrl:reader.result}); };
+    reader.onerror = function(){ cb(null); };
+    reader.readAsDataURL(file);
+  } else {
+    alert('Format non supporté. Utilisez une image (JPG/PNG) ou un PDF.');
+    cb(null);
+  }
 }
 
 /* ================= icons / tabs ================= */
@@ -987,11 +1066,13 @@ function viewAppels(){
   var mode = ui.appelMode || 'suivi';
   var eleves=classeId?elevesDe(classeId):[];
 
-  var head = '<div class="view-head"><div><h1>Liste d’appel</h1><p>Appel quotidien par classe : suivi numérique au jour le jour, ou registre imprimable à remplir à la main en classe.</p></div></div>'
+  var head = '<div class="view-head"><div><h1>Liste d’appel</h1><p>Appel quotidien par classe : suivi numérique au jour le jour, registre imprimable, ou tableau de bord des absences.</p></div></div>'
     + '<div class="panel"><div class="field-grid">'
       + '<div class="field"><label>Classe</label><select id="appelClasse">'+opts+'</select></div>'
-      + '<div class="field"><label>Affichage</label><select id="appelMode"><option value="suivi"'+(mode==='suivi'?' selected':'')+'>Suivi quotidien (numérique)</option><option value="registre"'+(mode==='registre'?' selected':'')+'>Registre imprimable</option></select></div>'
+      + '<div class="field"><label>Affichage</label><select id="appelMode"><option value="suivi"'+(mode==='suivi'?' selected':'')+'>Suivi quotidien (numérique)</option><option value="registre"'+(mode==='registre'?' selected':'')+'>Registre imprimable</option><option value="tableaubord"'+(mode==='tableaubord'?' selected':'')+'>Tableau de bord des absences</option></select></div>'
     + '</div></div>';
+
+  if(mode==='tableaubord') return head + renderTableauBordAbsences();
 
   if(classes.length===0) return head + '<div class="panel"><div class="empty">Créez d\'abord une classe.</div></div>';
   if(eleves.length===0) return head + '<div class="panel"><div class="empty">Aucun élève dans cette classe. Créez d’abord une classe et ajoutez ses élèves.</div></div>';
@@ -1003,10 +1084,107 @@ function viewAppels(){
   }
 
   var date=ui.dateAppel||todayISO();
-  var rows=eleves.map(function(e){var key=date+'_'+classeId+'_'+e.id, a=cache.appels[key]||{};return '<tr><td>'+esc(e.nom)+'</td><td>'+esc(e.prenom)+'</td><td>'+esc(e.sexe||'—')+'</td><td><select data-appel-eleve="'+e.id+'"'+dis+'><option value="present"'+((a.statut||'present')==='present'?' selected':'')+'>Présent</option><option value="absent"'+(a.statut==='absent'?' selected':'')+'>Absent</option><option value="retard"'+(a.statut==='retard'?' selected':'')+'>Retard</option><option value="justifie"'+(a.statut==='justifie'?' selected':'')+'>Absent justifié</option></select></td></tr>';}).join('');
+  var canValidate = canManageUsers();
+  var rows=eleves.map(function(e){
+    var a = getAppel(date, classeId, e.id);
+    var isAbsent = a.statut==='absent';
+    var pieceCell = '—';
+    if(isAbsent){
+      pieceCell = '<input type="file" accept="image/*,application/pdf" data-appel-piece="'+e.id+'"'+dis+'>';
+      if(a.piece) pieceCell += '<div class="hint" style="margin-top:4px"><a href="'+a.piece.dataUrl+'" target="_blank" rel="noopener">'+esc(a.piece.name||'Fichier joint')+'</a></div>';
+    }
+    var justifCell = '—';
+    if(isAbsent){
+      justifCell = canValidate
+        ? '<select data-appel-justif-statut="'+e.id+'"'+dis+'><option value="en_attente"'+(a.justificatifStatut==='en_attente'?' selected':'')+'>En attente</option><option value="valide"'+(a.justificatifStatut==='valide'?' selected':'')+'>Validé</option><option value="refuse"'+(a.justificatifStatut==='refuse'?' selected':'')+'>Refusé</option></select>'
+        : esc(JUSTIF_STATUTS[a.justificatifStatut]||'En attente');
+    }
+    return '<tr'+(isAbsent?' class="row-absent"':'')+'>'
+      + '<td><input type="checkbox" data-appel-check="'+e.id+'"'+dis+'></td>'
+      + '<td>'+esc(e.nom)+'</td><td>'+esc(e.prenom)+'</td>'
+      + '<td><select data-appel-statut="'+e.id+'"'+dis+'><option value="present"'+(a.statut==='present'?' selected':'')+'>Présent</option><option value="absent"'+(isAbsent?' selected':'')+'>Absent</option><option value="retard"'+(a.statut==='retard'?' selected':'')+'>Retard</option></select></td>'
+      + '<td>'+(isAbsent ? '<select data-appel-periode="'+e.id+'"'+dis+'><option value="journee"'+(a.periode==='journee'?' selected':'')+'>Journée</option><option value="matin"'+(a.periode==='matin'?' selected':'')+'>Matin</option><option value="apresmidi"'+(a.periode==='apresmidi'?' selected':'')+'>Après-midi</option></select>' : '—')+'</td>'
+      + '<td>'+(isAbsent ? '<label class="row" style="gap:4px;white-space:nowrap"><input type="checkbox" data-appel-justifiee="'+e.id+'"'+(a.justifiee?' checked':'')+dis+'> Justifiée</label>' : '—')+'</td>'
+      + '<td>'+(isAbsent ? '<select data-appel-motif="'+e.id+'"'+dis+'><option value="">—</option><option value="maladie"'+(a.motif==='maladie'?' selected':'')+'>Maladie</option><option value="autorisation"'+(a.motif==='autorisation'?' selected':'')+'>Autorisation parentale</option><option value="autre"'+(a.motif==='autre'?' selected':'')+'>Autre</option></select>' : '—')+'</td>'
+      + '<td>'+(isAbsent ? '<input type="text" data-appel-observation="'+e.id+'" value="'+esc(a.observation)+'" placeholder="Observation"'+dis+'>' : '—')+'</td>'
+      + '<td>'+pieceCell+'</td>'
+      + '<td>'+justifCell+'</td>'
+    + '</tr>';
+  }).join('');
   return head
-    + '<div class="panel"><div class="field-grid"><div class="field"><label>Date</label><input type="date" id="appelDate" value="'+esc(date)+'"'+dis+'></div></div></div>'
-    + '<div class="panel"><h2>Présences <span class="count">'+eleves.length+' élèves</span></h2><div class="table-wrap"><table><thead><tr><th>Nom</th><th>Prénom</th><th>Sexe</th><th>Présence</th></tr></thead><tbody>'+rows+'</tbody></table></div></div>';
+    + '<div class="panel"><div class="field-grid"><div class="field"><label>Date</label><input type="date" id="appelDate" value="'+esc(date)+'"'+dis+'></div></div>'
+      + '<div class="row" style="margin-top:10px">'
+        + '<button type="button" class="btn btn-sm" data-action="appel-tout-present" data-classe="'+classeId+'" data-date="'+esc(date)+'"'+dis+'>Tout marquer présent</button>'
+        + '<button type="button" class="btn btn-sm" data-action="appel-selection-absente" data-classe="'+classeId+'" data-date="'+esc(date)+'"'+dis+'>Marquer la sélection absente</button>'
+      + '</div>'
+    + '</div>'
+    + '<div class="panel"><h2>Présences <span class="count">'+eleves.length+' élèves</span></h2><div class="table-wrap"><table><thead><tr><th></th><th>Nom</th><th>Prénom</th><th>Statut</th><th>Période</th><th>Justifiée</th><th>Motif</th><th>Observation</th><th>Justificatif</th><th>Validation</th></tr></thead><tbody>'+rows+'</tbody></table></div></div>';
+}
+
+/* Tableau de bord des absences : filtres élève / classe / dates / trimestre / justification. */
+function renderTableauBordAbsences(){
+  var classes = clasesTriees();
+  var classeOpts = '<option value="">Toutes les classes</option>'+classes.map(function(c){return '<option value="'+c.id+'"'+(ui.absDashClasse===c.id?' selected':'')+'>'+esc(c.nom)+'</option>';}).join('');
+  var elevesDisponibles = (ui.absDashClasse ? elevesDe(ui.absDashClasse) : cache.eleves.slice()).sort(function(a,b){ return ((a.nom||'')+(a.prenom||'')).localeCompare((b.nom||'')+(b.prenom||''),'fr'); });
+  var eleveOpts = '<option value="">Tous les élèves</option>'+elevesDisponibles.map(function(e){return '<option value="'+e.id+'"'+(ui.absDashEleve===e.id?' selected':'')+'>'+esc(e.nom)+' '+esc(e.prenom)+'</option>';}).join('');
+
+  var toutes = [];
+  Object.keys(cache.appels).forEach(function(key){
+    var raw = cache.appels[key];
+    if(!raw) return;
+    var statutBrut = raw.statut || 'present';
+    if(statutBrut!=='absent' && statutBrut!=='justifie') return;
+    var a = getAppel(raw.date, raw.classeId, raw.eleveId);
+    var e = cache.eleves.find(function(x){ return x.id===a.eleveId; });
+    var c = cache.classes.find(function(x){ return x.id===a.classeId; });
+    toutes.push(Object.assign({}, a, { trimestre: trimestreFromDate(a.date), eleveNom: e?(e.nom+' '+e.prenom):'—', classeNom: c?c.nom:'—' }));
+  });
+
+  var filtrees = toutes.filter(function(a){
+    if(ui.absDashEleve && a.eleveId!==ui.absDashEleve) return false;
+    if(ui.absDashClasse && a.classeId!==ui.absDashClasse) return false;
+    if(ui.absDashDateDebut && a.date < ui.absDashDateDebut) return false;
+    if(ui.absDashDateFin && a.date > ui.absDashDateFin) return false;
+    if(ui.absDashTrimestre && String(a.trimestre)!==String(ui.absDashTrimestre)) return false;
+    if(ui.absDashJustifiee==='justifiees' && !a.justifiee) return false;
+    if(ui.absDashJustifiee==='non_justifiees' && a.justifiee) return false;
+    return true;
+  }).sort(function(a,b){ return (b.date||'').localeCompare(a.date||''); });
+
+  var totalJ=0, totalNJ=0;
+  filtrees.forEach(function(a){ var j=joursDePeriode(a.periode); if(a.justifiee) totalJ+=j; else totalNJ+=j; });
+
+  var rows = filtrees.map(function(a){
+    var pieceLink = a.piece ? '<a href="'+a.piece.dataUrl+'" target="_blank" rel="noopener">'+esc(a.piece.name||'Voir')+'</a>' : '—';
+    return '<tr>'
+      + '<td>'+esc(frDate(a.date))+'</td>'
+      + '<td>'+esc(a.classeNom)+'</td>'
+      + '<td>'+esc(a.eleveNom)+'</td>'
+      + '<td>'+(a.trimestre?('Trim. '+a.trimestre):'—')+'</td>'
+      + '<td>'+({journee:'Journée',matin:'Matin',apresmidi:'Après-midi'}[a.periode]||a.periode)+'</td>'
+      + '<td>'+(a.justifiee ? '<span class="pill pill-good">Justifiée</span>' : '<span class="pill pill-muted">Non justifiée</span>')+'</td>'
+      + '<td>'+esc(ABSENCE_MOTIFS[a.motif]||'—')+'</td>'
+      + '<td>'+esc(a.observation||'—')+'</td>'
+      + '<td>'+pieceLink+'</td>'
+      + '<td>'+esc(JUSTIF_STATUTS[a.justificatifStatut]||'En attente')+'</td>'
+    + '</tr>';
+  }).join('');
+
+  return ''
+  + '<div class="panel"><div class="field-grid">'
+    + '<div class="field"><label>Élève</label><select id="absDashEleve">'+eleveOpts+'</select></div>'
+    + '<div class="field"><label>Classe</label><select id="absDashClasse">'+classeOpts+'</select></div>'
+    + '<div class="field"><label>Du</label><input type="date" id="absDashDateDebut" value="'+esc(ui.absDashDateDebut)+'"></div>'
+    + '<div class="field"><label>Au</label><input type="date" id="absDashDateFin" value="'+esc(ui.absDashDateFin)+'"></div>'
+    + '<div class="field"><label>Trimestre</label><select id="absDashTrimestre"><option value="">Tous</option><option value="1"'+(ui.absDashTrimestre==='1'?' selected':'')+'>Trimestre 1</option><option value="2"'+(ui.absDashTrimestre==='2'?' selected':'')+'>Trimestre 2</option><option value="3"'+(ui.absDashTrimestre==='3'?' selected':'')+'>Trimestre 3</option></select></div>'
+    + '<div class="field"><label>Justification</label><select id="absDashJustifiee"><option value="">Toutes</option><option value="justifiees"'+(ui.absDashJustifiee==='justifiees'?' selected':'')+'>Justifiées</option><option value="non_justifiees"'+(ui.absDashJustifiee==='non_justifiees'?' selected':'')+'>Non justifiées</option></select></div>'
+  + '</div></div>'
+  + '<div class="panel"><h2>Résultats <span class="count">'+filtrees.length+'</span></h2>'
+    + '<p class="hint" style="margin-top:0">Total : '+fmtJours(totalJ+totalNJ)+' — '+fmtJours(totalJ)+' justifié(s), '+fmtJours(totalNJ)+' non justifié(s).</p>'
+    + (filtrees.length
+      ? '<div class="table-wrap"><table><thead><tr><th>Date</th><th>Classe</th><th>Élève</th><th>Trimestre</th><th>Période</th><th>Justification</th><th>Motif</th><th>Observation</th><th>Justificatif</th><th>Statut</th></tr></thead><tbody>'+rows+'</tbody></table></div>'
+      : '<div class="empty">Aucune absence pour ces filtres.</div>')
+  + '</div>';
 }
 
 /* Registre d'appel imprimable — reproduit le formulaire papier : 2 jours par page,
@@ -1121,6 +1299,8 @@ function renderSheet(e, classeId, tri){
   var conseil = getConseil(e.id, tri);
   var dateBulletin = conseil.date || todayISO();
   var annStats = tri===3 ? statsAnnuelle(classeId) : null;
+  var absTri = calcAbsencesEleve(e.id, tri);
+  var absTexte = absTri.total>0 ? (fmtJours(absTri.total)+' — '+fmtJours(absTri.justifiees)+' justifié(s), '+fmtJours(absTri.nonJustifiees)+' non justifié(s)') : '0 j';
 
   var school = cache.school;
   var crest = school.logo ? '<img class="sheet-crest" src="'+school.logo+'" alt="">' : '<div class="sheet-crest-ph">'+ICONS.etablissement+'</div>';
@@ -1177,11 +1357,11 @@ function renderSheet(e, classeId, tri){
         + '<tfoot><tr><td colspan="2">Moyenne générale</td><td class="num tabnum">'+(rangGen?ordinal(rangGen):'—')+'</td><td class="num tabnum">'+fmt(moyGen)+'</td><td class="num tabnum">'+fmt(gen.moyenneClasse)+'</td><td></td></tr></tfoot>'
         + '</table></div>'
       : '<div class="empty">Aucune matière définie pour cette classe.</div>')
-    + (tri===3 ? renderBilanAnnuel(e, conseil, annStats) : '')
+    + (tri===3 ? renderBilanAnnuel(e, conseil, annStats, absTri) : '')
     + '<div class="sheet-conseil">'
       + '<div class="left">'
         + '<div class="ttl">Appréciation du conseil de classe</div>'
-        + '<div class="cline"><span>Absences</span><input type="text" data-conseil-eleve="'+e.id+'" data-conseil-field="absences" value="'+esc(conseil.absences)+'"'+dis+'></div>'
+        + '<div class="cline"><span>Absences</span><span class="num tabnum">'+esc(absTexte)+'</span></div>'
         + '<div class="cline" style="align-items:flex-start"><span>Appréciation globale</span><textarea rows="2" data-conseil-eleve="'+e.id+'" data-conseil-field="appreciationGlobale" placeholder="'+esc(suggestAppreciation(moyGen))+'"'+dis+'>'+esc(conseil.appreciationGlobale)+'</textarea></div>'
         + '<div class="cline"><span>Absences &amp; Conduite</span><input type="text" data-conseil-eleve="'+e.id+'" data-conseil-field="conduite" value="'+esc(conseil.conduite)+'"'+dis+'></div>'
         + (tri===3 ? '<div class="cline"><span>Décision du conseil de classe</span><input type="text" data-conseil-eleve="'+e.id+'" data-conseil-field="decision" value="'+esc(conseil.decision)+'" placeholder="Ex. Admis(e)"'+dis+'></div>' : '')
@@ -1196,16 +1376,17 @@ function renderSheet(e, classeId, tri){
 
 /* Bloc "Bilan annuel", affiché uniquement sur le bulletin du Trimestre 3.
    Reprend le modèle papier : absences, récap des 3 trimestres, moyenne générale annuelle. */
-function renderBilanAnnuel(e, conseilT3, annStats){
-  var dis = writeGuardOk() ? '' : ' disabled';
+function renderBilanAnnuel(e, conseilT3, annStats, absTri){
   var moyAnnuelle = annStats.annuelles[e.id];
   var rangAnnuel = annStats.ranks[e.id];
   var t1 = annStats.t1[e.id], t2 = annStats.t2[e.id], t3 = annStats.t3[e.id];
+  var absAnnuelle = calcAbsencesEleve(e.id, null);
+  var absAnnuelleTexte = absAnnuelle.total>0 ? (fmtJours(absAnnuelle.total)+' — '+fmtJours(absAnnuelle.justifiees)+' justifié(s), '+fmtJours(absAnnuelle.nonJustifiees)+' non justifié(s)') : '0 j';
   return ''
   + '<div class="bilan-annuel">'
     + '<div class="table-wrap"><table><tbody>'
-      + '<tr><td>Absences Trimestre 3</td><td class="num tabnum">'+esc(conseilT3.absences)+'</td></tr>'
-      + '<tr><td>Absences Annuelle</td><td class="num"><input type="text" data-conseil-eleve="'+e.id+'" data-conseil-field="absencesAnnuelles" value="'+esc(conseilT3.absencesAnnuelles)+'" style="width:100%; border:1px solid var(--line); background:var(--bg); border-radius:6px; padding:4px 7px; font-size:12px; font-family:inherit; text-align:center"'+dis+'></td></tr>'
+      + '<tr><td>Absences Trimestre 3</td><td class="num tabnum">'+esc(fmtJours(absTri.total))+'</td></tr>'
+      + '<tr><td>Absences Annuelle</td><td class="num tabnum">'+esc(absAnnuelleTexte)+'</td></tr>'
       + '<tr><td>Position de l\'élève</td><td class="num tabnum">'+(rangAnnuel?ordinal(rangAnnuel):'—')+'</td></tr>'
     + '</tbody></table></div>'
     + '<div class="table-wrap"><table><tbody>'
@@ -1380,11 +1561,24 @@ document.addEventListener('click', function(e){
       .then(function(){ loadProfiles(); })
       .catch(function(err){ alert('Erreur : '+(err.message||err)); });
   }
+  else if(action === 'appel-tout-present'){
+    var classeTP=t.dataset.classe, dateTP=t.dataset.date;
+    elevesDe(classeTP).forEach(function(el){ setAppel(dateTP, classeTP, el.id, {statut:'present', periode:'journee', justifiee:false, motif:'', observation:''}); });
+    appelSelection = {}; render();
+  }
+  else if(action === 'appel-selection-absente'){
+    var classeSA=t.dataset.classe, dateSA=t.dataset.date;
+    var ids = Object.keys(appelSelection).filter(function(id){ return appelSelection[id]; });
+    if(!ids.length){ alert('Cochez d’abord les élèves à marquer absents.'); return; }
+    ids.forEach(function(id){ setAppel(dateSA, classeSA, id, {statut:'absent'}); });
+    appelSelection = {}; render();
+  }
 });
 
 document.addEventListener('change', function(e){
   var t = e.target;
-  if(!writeGuardOk() && (t.dataset.path || t.dataset.classe || t.dataset.eleve || t.dataset.matiere || t.dataset.noteEleve || t.dataset.appelEleve || t.dataset.appelJour || t.dataset.conseilEleve || t.dataset.sheetDate || t.id==='logoInput' || t.hasAttribute('data-eleve-photo'))) return;
+  if(!writeGuardOk() && (t.dataset.path || t.dataset.classe || t.dataset.eleve || t.dataset.matiere || t.dataset.noteEleve || t.dataset.appelJour || t.dataset.conseilEleve || t.dataset.sheetDate || t.id==='logoInput' || t.hasAttribute('data-eleve-photo')
+    || t.dataset.appelStatut || t.dataset.appelPeriode || t.dataset.appelJustifiee || t.dataset.appelMotif || t.dataset.appelObservation || t.dataset.appelPiece || t.dataset.appelJustifStatut)) return;
 
   if(t.id === 'importJsonInput' && t.files && t.files[0]){
     var reader = new FileReader();
@@ -1419,6 +1613,17 @@ document.addEventListener('change', function(e){
     }
     return;
   }
+  if(t.dataset.appelPiece){
+    var eidPiece = t.dataset.appelPiece;
+    if(t.files && t.files[0]){
+      var classeP = ui.classeFiltre||(clasesTriees()[0]&&clasesTriees()[0].id)||'', dateP = ui.dateAppel||todayISO();
+      filePieceToDataUrl(t.files[0], function(piece){
+        if(piece){ setAppel(dateP, classeP, eidPiece, {piece:piece}); render(); }
+        t.value='';
+      });
+    }
+    return;
+  }
 
   if(t.dataset.path){ setPath(cache, t.dataset.path, t.value); renderShell(); dbSetDoc("config/ecole", cache.school); return; }
 
@@ -1426,6 +1631,12 @@ document.addEventListener('change', function(e){
   if(t.id === 'appelDate'){ui.dateAppel=t.value;saveUi();render();return;}
   if(t.id === 'appelMode'){ui.appelMode=t.value;saveUi();render();return;}
   if(t.dataset.appelJour){ if(t.dataset.appelJour==='1') ui.appelJour1=t.value; else ui.appelJour2=t.value; saveUi(); render(); return; }
+  if(t.id === 'absDashEleve'){ui.absDashEleve=t.value;saveUi();render();return;}
+  if(t.id === 'absDashClasse'){ui.absDashClasse=t.value;ui.absDashEleve='';saveUi();render();return;}
+  if(t.id === 'absDashDateDebut'){ui.absDashDateDebut=t.value;saveUi();render();return;}
+  if(t.id === 'absDashDateFin'){ui.absDashDateFin=t.value;saveUi();render();return;}
+  if(t.id === 'absDashTrimestre'){ui.absDashTrimestre=t.value;saveUi();render();return;}
+  if(t.id === 'absDashJustifiee'){ui.absDashJustifiee=t.value;saveUi();render();return;}
   if(t.id === 'filtreClasseEleves' || t.id==='filtreClasseMatieres' || t.id==='notesClasse' || t.id==='bulletinClasse'){ ui.classeFiltre = t.value; saveUi(); render(); return; }
   if(t.id === 'notesMatiere'){ ui.notesMatiere = t.value; saveUi(); render(); return; }
   if(t.id === 'bulletinMode'){ ui.bulletinMode = t.value; saveUi(); render(); return; }
@@ -1470,7 +1681,25 @@ document.addEventListener('change', function(e){
     return;
   }
 
-  if(t.dataset.appelEleve){var classe=ui.classeFiltre||(clasesTriees()[0]&&clasesTriees()[0].id)||'', date=ui.dateAppel||todayISO(), key=date+'_'+classe+'_'+t.dataset.appelEleve; cache.appels[key]={date:date,classeId:classe,eleveId:t.dataset.appelEleve,statut:t.value}; persistPayload(); return;}
+  if(t.dataset.appelStatut){
+    var classeS=ui.classeFiltre||(clasesTriees()[0]&&clasesTriees()[0].id)||'', dateS=ui.dateAppel||todayISO();
+    var patchS = {statut:t.value};
+    if(t.value!=='absent'){ patchS.periode='journee'; patchS.justifiee=false; patchS.motif=''; patchS.observation=''; }
+    setAppel(dateS, classeS, t.dataset.appelStatut, patchS);
+    render();
+    return;
+  }
+  if(t.dataset.appelPeriode){var classePe=ui.classeFiltre||(clasesTriees()[0]&&clasesTriees()[0].id)||'', datePe=ui.dateAppel||todayISO(); setAppel(datePe, classePe, t.dataset.appelPeriode, {periode:t.value}); return;}
+  if(t.dataset.appelJustifiee){var classeJ=ui.classeFiltre||(clasesTriees()[0]&&clasesTriees()[0].id)||'', dateJ=ui.dateAppel||todayISO(); setAppel(dateJ, classeJ, t.dataset.appelJustifiee, {justifiee:t.checked}); return;}
+  if(t.dataset.appelMotif){var classeM=ui.classeFiltre||(clasesTriees()[0]&&clasesTriees()[0].id)||'', dateM=ui.dateAppel||todayISO(); setAppel(dateM, classeM, t.dataset.appelMotif, {motif:t.value}); return;}
+  if(t.dataset.appelObservation){var classeO=ui.classeFiltre||(clasesTriees()[0]&&clasesTriees()[0].id)||'', dateO=ui.dateAppel||todayISO(); setAppel(dateO, classeO, t.dataset.appelObservation, {observation:t.value}); return;}
+  if(t.dataset.appelJustifStatut){
+    if(!canManageUsers()) return;
+    var classeV=ui.classeFiltre||(clasesTriees()[0]&&clasesTriees()[0].id)||'', dateV=ui.dateAppel||todayISO();
+    setAppel(dateV, classeV, t.dataset.appelJustifStatut, {justificatifStatut:t.value});
+    return;
+  }
+  if(t.dataset.appelCheck){ appelSelection[t.dataset.appelCheck] = t.checked; return; }
   if(t.dataset.conseilEleve){ var patch4 = {}; patch4[t.dataset.conseilField] = t.value; setConseil(t.dataset.conseilEleve, ui.trimestre, patch4); return; }
   if(t.dataset.sheetDate){ setConseil(t.dataset.sheetDate, ui.trimestre, { date: t.value }); return; }
 
