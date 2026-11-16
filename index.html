@@ -1593,10 +1593,8 @@ function renderSheet(e, classeId, tri){
   var conseil = getConseil(e.id, tri);
   var dateBulletin = conseil.date || todayISO();
   var annStats = tri===3 ? statsAnnuelle(classeId) : null;
-  var absTri = calcAbsencesEleve(e.id, tri);
-  var absTexte = absTri.total>0 ? (fmtJours(absTri.total)+' — '+fmtJours(absTri.justifiees)+' justifié(s), '+fmtJours(absTri.nonJustifiees)+' non justifié(s)') : '0 j';
   var heuresTri = calcHeuresEleve(e.id, {trimestre:tri});
-  if(heuresTri.total>0){ absTexte += ' + ' + heuresTri.nonJustifiees + ' h non justifiée(s) (appels par matière)'; }
+  var absTexte = heuresTri.nonJustifiees + 'h';
 
   var school = cache.school;
   var crest = school.logo ? '<img class="sheet-crest" src="'+school.logo+'" alt="">' : '<div class="sheet-crest-ph">'+ICONS.etablissement+'</div>';
@@ -1653,7 +1651,7 @@ function renderSheet(e, classeId, tri){
         + '<tfoot><tr><td colspan="2">Moyenne générale</td><td class="num tabnum">'+(rangGen?ordinal(rangGen):'—')+'</td><td class="num tabnum">'+fmt(moyGen)+'</td><td class="num tabnum">'+fmt(gen.moyenneClasse)+'</td><td></td></tr></tfoot>'
         + '</table></div>'
       : '<div class="empty">Aucune matière définie pour cette classe.</div>')
-    + (tri===3 ? renderBilanAnnuel(e, conseil, annStats, absTri) : '')
+    + (tri===3 ? renderBilanAnnuel(e, conseil, annStats, heuresTri) : '')
     + '<div class="sheet-conseil">'
       + '<div class="left">'
         + '<div class="ttl">Appréciation du conseil de classe</div>'
@@ -1672,19 +1670,16 @@ function renderSheet(e, classeId, tri){
 
 /* Bloc "Bilan annuel", affiché uniquement sur le bulletin du Trimestre 3.
    Reprend le modèle papier : absences, récap des 3 trimestres, moyenne générale annuelle. */
-function renderBilanAnnuel(e, conseilT3, annStats, absTri){
+function renderBilanAnnuel(e, conseilT3, annStats, heuresTri){
   var moyAnnuelle = annStats.annuelles[e.id];
   var rangAnnuel = annStats.ranks[e.id];
   var t1 = annStats.t1[e.id], t2 = annStats.t2[e.id], t3 = annStats.t3[e.id];
-  var absAnnuelle = calcAbsencesEleve(e.id, null);
-  var absAnnuelleTexte = absAnnuelle.total>0 ? (fmtJours(absAnnuelle.total)+' — '+fmtJours(absAnnuelle.justifiees)+' justifié(s), '+fmtJours(absAnnuelle.nonJustifiees)+' non justifié(s)') : '0 j';
   var heuresAnnuelle = calcHeuresEleve(e.id, {});
-  if(heuresAnnuelle.total>0){ absAnnuelleTexte += ' + ' + heuresAnnuelle.nonJustifiees + ' h non justifiée(s)'; }
   return ''
   + '<div class="bilan-annuel">'
     + '<div class="table-wrap"><table><tbody>'
-      + '<tr><td>Absences Trimestre 3</td><td class="num tabnum">'+esc(fmtJours(absTri.total))+'</td></tr>'
-      + '<tr><td>Absences Annuelle</td><td class="num tabnum">'+esc(absAnnuelleTexte)+'</td></tr>'
+      + '<tr><td>Absences Trimestre 3</td><td class="num tabnum">'+heuresTri.nonJustifiees+'h</td></tr>'
+      + '<tr><td>Absences Annuelle</td><td class="num tabnum">'+heuresAnnuelle.nonJustifiees+'h</td></tr>'
       + '<tr><td>Position de l\'élève</td><td class="num tabnum">'+(rangAnnuel?ordinal(rangAnnuel):'—')+'</td></tr>'
     + '</tbody></table></div>'
     + '<div class="table-wrap"><table><tbody>'
