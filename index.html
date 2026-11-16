@@ -1594,7 +1594,7 @@ function renderSheet(e, classeId, tri){
   var dateBulletin = conseil.date || todayISO();
   var annStats = tri===3 ? statsAnnuelle(classeId) : null;
   var heuresTri = calcHeuresEleve(e.id, {trimestre:tri});
-  var absTexte = heuresTri.nonJustifiees + 'h';
+  var absTexte = heuresTri.nonJustifiees + ' heure(s)';
 
   var school = cache.school;
   var crest = school.logo ? '<img class="sheet-crest" src="'+school.logo+'" alt="">' : '<div class="sheet-crest-ph">'+ICONS.etablissement+'</div>';
@@ -1655,7 +1655,7 @@ function renderSheet(e, classeId, tri){
     + '<div class="sheet-conseil">'
       + '<div class="left">'
         + '<div class="ttl">Appréciation du conseil de classe</div>'
-        + '<div class="cline"><span>Absences</span><span class="num tabnum">'+esc(absTexte)+'</span></div>'
+        + '<div class="cline"><span>Absences</span><input type="text" class="num tabnum" value="'+esc(absTexte)+'" readonly></div>'
         + '<div class="cline" style="align-items:flex-start"><span>Appréciation globale</span><textarea rows="2" data-conseil-eleve="'+e.id+'" data-conseil-field="appreciationGlobale" placeholder="'+esc(suggestAppreciation(moyGen))+'"'+dis+'>'+esc(conseil.appreciationGlobale)+'</textarea></div>'
         + '<div class="cline"><span>Absences &amp; Conduite</span><input type="text" data-conseil-eleve="'+e.id+'" data-conseil-field="conduite" value="'+esc(conseil.conduite)+'"'+dis+'></div>'
         + (tri===3 ? '<div class="cline"><span>Décision du conseil de classe</span><input type="text" data-conseil-eleve="'+e.id+'" data-conseil-field="decision" value="'+esc(conseil.decision)+'" placeholder="Ex. Admis(e)"'+dis+'></div>' : '')
@@ -1678,8 +1678,8 @@ function renderBilanAnnuel(e, conseilT3, annStats, heuresTri){
   return ''
   + '<div class="bilan-annuel">'
     + '<div class="table-wrap"><table><tbody>'
-      + '<tr><td>Absences Trimestre 3</td><td class="num tabnum">'+heuresTri.nonJustifiees+'h</td></tr>'
-      + '<tr><td>Absences Annuelle</td><td class="num tabnum">'+heuresAnnuelle.nonJustifiees+'h</td></tr>'
+      + '<tr><td>Absences Trimestre 3</td><td class="num tabnum">'+heuresTri.nonJustifiees+' heure(s)</td></tr>'
+      + '<tr><td>Absences Annuelle</td><td class="num tabnum">'+heuresAnnuelle.nonJustifiees+' heure(s)</td></tr>'
       + '<tr><td>Position de l\'élève</td><td class="num tabnum">'+(rangAnnuel?ordinal(rangAnnuel):'—')+'</td></tr>'
     + '</tbody></table></div>'
     + '<div class="table-wrap"><table><tbody>'
