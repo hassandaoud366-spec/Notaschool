@@ -311,14 +311,16 @@ var syncChannel = null, saveQueue = Promise.resolve();
 var SUPABASE_URL = window.NOTASCHOOL_SUPABASE_URL || "";
 var SUPABASE_ANON_KEY = window.NOTASCHOOL_SUPABASE_ANON_KEY || "";
 var IDENTIFIANT_DOMAIN = "@notaschool.internal";
-var ROLES_LABELS = { admin:"Administrateur", directeur:"Directeur", enseignant:"Enseignant", secretaire:"Secrétaire" };
+var ROLES_LABELS = { admin:"Administrateur", directeur:"Directeur", enseignant:"Enseignant", secretaire:"Secrétaire", surveillant:"Surveillant" };
 function identifiantToEmail(identifiant){ return String(identifiant||'').trim().toLowerCase() + IDENTIFIANT_DOMAIN; }
 
 /* local-only UI preferences (per browser, never shared) */
 var LS_KEY = "notaschool_ui_prefs_v1";
 function loadUi(){
   var d = { tab:"etablissement", trimestre:1, classeFiltre:"", notesMatiere:"", bulletinMode:"un", bulletinEleve:"", deleteArmed:"", appelMode:"suivi", appelJour1:"", appelJour2:"",
-    absDashEleve:"", absDashClasse:"", absDashDateDebut:"", absDashDateFin:"", absDashTrimestre:"", absDashJustifiee:"" };
+    absDashEleve:"", absDashClasse:"", absDashDateDebut:"", absDashDateFin:"", absDashTrimestre:"", absDashJustifiee:"",
+    appelMatDate:"", appelMatiereNom:"", appelMatHeureDebut:"", appelMatHeureFin:"", appelMatEditId:"",
+    histRecherche:"", histClasse:"", histTrimestre:"", histMois:"", histSemaine:"", histDate:"", histJour:"", histMatiere:"", histStatut:"" };
   try{ var raw = localStorage.getItem(LS_KEY); if(raw) return Object.assign(d, JSON.parse(raw)); }catch(e){}
   return d;
 }
@@ -327,12 +329,14 @@ var ui = loadUi();
 
 /* ================= shared cache, fed by live snapshots ================= */
 var appelSelection = {};
+var appelMatSaisie = {}; // saisie en cours (non persistée tant que l'appel-matière n'est pas enregistré)
 var cache = {
   school: { nom:"CEM-Lycée de Bouya", telephone:"", email:"", anneeScolaire:"" },
   classes: [], eleves: [], matieres: [],
   notes: {},    // key eleveId_matiereId_trimestre -> {valeurs, appreciation, eleveId, matiereId, trimestre}
   conseil: {},  // key eleveId_trimestre -> {absences, appreciationGlobale, date, eleveId, trimestre}
-  appels: {},   // key date_classe_eleve -> {date, classeId, eleveId, statut}
+  appels: {},   // key date_classe_eleve -> {date, classeId, eleveId, statut}  (ancien format, jour/demi-jour)
+  appelsEvt: {}, // key evtId -> {id,date,classeId,matiere,heureDebut,heureFin,dureeHeures,auteur,creeLe,eleves:{eleveId:{statut,justifiee,motif,observation,piece,justificatifStatut}}}
   profiles: [],  // utilisateurs (comptes), rempli uniquement pour les admins
   loaded: { school:false, classes:false, eleves:false, matieres:false, notes:false, conseil:false }
 };
@@ -367,12 +371,13 @@ function revealShell(){
   if(canManageUsers()) loadProfiles();
 }
 function markAllLoaded(){ cache.loaded={school:true,classes:true,eleves:true,matieres:true,notes:true,conseil:true}; }
-function payloadFromCache(){ return {school:cache.school,classes:cache.classes,eleves:cache.eleves,matieres:cache.matieres,notes:cache.notes,conseil:cache.conseil,appels:cache.appels}; }
+function payloadFromCache(){ return {school:cache.school,classes:cache.classes,eleves:cache.eleves,matieres:cache.matieres,notes:cache.notes,conseil:cache.conseil,appels:cache.appels,appelsEvt:cache.appelsEvt}; }
 function applyPayload(p){
   p=p||{}; cache.school=Object.assign({nom:'CEM-Lycée de Bouya',telephone:'',email:'',anneeScolaire:'',logo:''},p.school||{});
   cache.classes=Array.isArray(p.classes)?p.classes:[]; cache.eleves=Array.isArray(p.eleves)?p.eleves:[];
   cache.matieres=Array.isArray(p.matieres)?p.matieres:[]; cache.notes=p.notes&&typeof p.notes==='object'?p.notes:{};
-  cache.conseil=p.conseil&&typeof p.conseil==='object'?p.conseil:{}; cache.appels=p.appels&&typeof p.appels==='object'?p.appels:{}; markAllLoaded();
+  cache.conseil=p.conseil&&typeof p.conseil==='object'?p.conseil:{}; cache.appels=p.appels&&typeof p.appels==='object'?p.appels:{};
+  cache.appelsEvt=p.appelsEvt&&typeof p.appelsEvt==='object'?p.appelsEvt:{}; markAllLoaded();
 }
 async function loadSchoolData(){
 
@@ -474,7 +479,10 @@ async function loadViewerProfile(){
 }
 function isAdmin(){ return !!(viewerProfile && viewerProfile.role === 'admin'); }
 function isDirecteur(){ return !!(viewerProfile && viewerProfile.role === 'directeur'); }
+function isSurveillant(){ return !!(viewerProfile && viewerProfile.role === 'surveillant'); }
 function canManageUsers(){ return isAdmin() || isDirecteur(); }
+/* Validation des justificatifs d'absence : réservée à l'administration (admin + directeur). */
+function canValiderJustificatifs(){ return isAdmin() || isDirecteur(); }
 
 /* ================= gestion des utilisateurs (admin) ================= */
 function loadProfiles(){
@@ -666,6 +674,96 @@ function calcAbsencesEleve(eleveId, trimestre){
   return { justifiees:justifiees, nonJustifiees:nonJustifiees, total:justifiees+nonJustifiees, liste:liste };
 }
 
+/* ================= appels par matière (nouveau système, heures réelles) ================= */
+/* Semaine Sam-Jeu : le vendredi n'est pas un jour scolaire (POINT 3 du cahier des charges). */
+var JOURS_SEMAINE_ECOLE = { 6:"Samedi", 0:"Dimanche", 1:"Lundi", 2:"Mardi", 3:"Mercredi", 4:"Jeudi" };
+var MOIS_FR = ["Janvier","Février","Mars","Avril","Mai","Juin","Juillet","Août","Septembre","Octobre","Novembre","Décembre"];
+function jourSemaineFr(iso){ if(!iso) return "—"; var d = new Date(iso+"T00:00:00"); if(isNaN(d.getTime())) return "—"; var g=d.getDay(); return JOURS_SEMAINE_ECOLE[g] || "Vendredi"; }
+function isVendrediISO(iso){ if(!iso) return false; var d = new Date(iso+"T00:00:00"); return !isNaN(d.getTime()) && d.getDay()===5; }
+function moisLabelFromISO(iso){ if(!iso) return "—"; var m = parseInt(String(iso).split("-")[1],10); return MOIS_FR[m-1] || "—"; }
+/* Semaine du mois : 1 à 4, les jours au-delà de 4 semaines (jours 29+) rattachés à la semaine 4. */
+function semaineDuMoisISO(iso){ if(!iso) return null; var jour = parseInt(String(iso).split("-")[2],10); if(!jour) return null; return Math.min(4, Math.ceil(jour/7)); }
+/* Durée en heures entières, TOUJOURS arrondie vers le bas (jamais vers le haut). Ex: 10:00-12:30 -> 2h. */
+function dureeHeuresEntre(hDebut, hFin){
+  if(!hDebut || !hFin) return 0;
+  var pd=hDebut.split(':'), pf=hFin.split(':');
+  var mDebut = (parseInt(pd[0],10)||0)*60 + (parseInt(pd[1],10)||0);
+  var mFin = (parseInt(pf[0],10)||0)*60 + (parseInt(pf[1],10)||0);
+  var diff = mFin - mDebut; if(diff<=0) return 0;
+  return Math.floor(diff/60);
+}
+function evtId(date,classeId,matiere,hDebut,hFin){ return [date,classeId,String(matiere||'').trim().toLowerCase(),hDebut,hFin].join('_'); }
+function getAppelsEvtDeClasseDate(classeId, date){
+  return Object.keys(cache.appelsEvt).map(function(k){return cache.appelsEvt[k];})
+    .filter(function(ev){ return ev && ev.classeId===classeId && ev.date===date; })
+    .sort(function(a,b){ return (a.heureDebut||'').localeCompare(b.heureDebut||''); });
+}
+function setAppelEvt(evt){
+  if(!writeGuardOk()) return;
+  evt.dureeHeures = dureeHeuresEntre(evt.heureDebut, evt.heureFin);
+  evt.anneeScolaire = (cache.school&&cache.school.anneeScolaire)||'';
+  if(!evt.creeLe) evt.creeLe = new Date().toISOString();
+  evt.modifieLe = new Date().toISOString();
+  evt.auteur = (viewerProfile && (viewerProfile.full_name||viewerProfile.identifiant)) || '—';
+  cache.appelsEvt[evt.id] = evt;
+  dbSet('appelsEvt', evt.id, evt);
+}
+function deleteAppelEvt(id){ if(!writeGuardOk()) return; delete cache.appelsEvt[id]; dbDelete('appelsEvt', id); }
+
+/* Liste à plat de tous les enregistrements d'absence/retard d'un élève pour le nouveau système
+   (un enregistrement par appel-matière où l'élève n'est pas « présent »). */
+function heuresEvtEleve(eleveId){
+  var out = [];
+  Object.keys(cache.appelsEvt).forEach(function(k){
+    var ev = cache.appelsEvt[k]; if(!ev || !ev.eleves) return;
+    var st = ev.eleves[eleveId]; if(!st) return;
+    if(st.statut!=='absent' && st.statut!=='retard') return;
+    var tri = trimestreFromDate(ev.date);
+    var justifieeValidee = !!st.justifiee && st.justificatifStatut==='valide';
+    out.push({
+      source:'evt', evtId:ev.id, eleveId:eleveId, date:ev.date, jour:jourSemaineFr(ev.date),
+      mois:moisLabelFromISO(ev.date), semaine:semaineDuMoisISO(ev.date), trimestre:tri,
+      classeId:ev.classeId, matiere:ev.matiere, heureDebut:ev.heureDebut, heureFin:ev.heureFin,
+      dureeHeures: ev.dureeHeures||0, statut:st.statut, justifiee: !!st.justifiee,
+      justificatifStatut: st.justificatifStatut || 'en_attente', justifieeValidee:justifieeValidee,
+      motif: st.motif||'', observation: st.observation||'', piece: st.piece||null
+    });
+  });
+  return out;
+}
+/* Même liste, mais incluant aussi les anciens enregistrements (format jour/demi-jour), étiquetés "Ancien format". */
+function heuresToutesEleve(eleveId){
+  var neuf = heuresEvtEleve(eleveId);
+  var anciens = absencesEleve(eleveId, null).map(function(a){
+    var justifieeValidee = !!a.justifiee; // ancien format : pas de workflow de validation séparé, on respecte le flag existant
+    return {
+      source:'legacy', evtId:null, eleveId:eleveId, date:a.date, jour:jourSemaineFr(a.date),
+      mois:moisLabelFromISO(a.date), semaine:semaineDuMoisISO(a.date), trimestre:a.trimestre,
+      classeId:a.classeId, matiere:'— (ancien format)', heureDebut:'', heureFin:'',
+      dureeHeures: null, dureeJours: joursDePeriode(a.periode), statut:a.statut,
+      justifiee: !!a.justifiee, justificatifStatut: a.justificatifStatut || 'en_attente',
+      justifieeValidee: justifieeValidee, motif: a.motif||'', observation: a.observation||'', piece: a.piece||null
+    };
+  });
+  return neuf.concat(anciens).sort(function(x,y){ return (y.date||'').localeCompare(x.date||''); });
+}
+/* Totaux en heures pour un élève, avec filtres optionnels {trimestre, mois, classeId, matiere}.
+   Seules les absences NON justifiées (ou justifiées mais non encore validées) comptent dans le total retenu. */
+function calcHeuresEleve(eleveId, filtres){
+  filtres = filtres || {};
+  var liste = heuresEvtEleve(eleveId).filter(function(r){
+    if(r.statut!=='absent') return false; // seules les absences comptent en heures ; les retards restent visibles dans l'historique sans compter d'heures
+    if(filtres.trimestre && String(r.trimestre)!==String(filtres.trimestre)) return false;
+    if(filtres.mois && r.mois!==filtres.mois) return false;
+    if(filtres.classeId && r.classeId!==filtres.classeId) return false;
+    if(filtres.matiere && r.matiere!==filtres.matiere) return false;
+    return true;
+  });
+  var justifiees=0, nonJustifiees=0;
+  liste.forEach(function(r){ if(r.justifieeValidee) justifiees+=r.dureeHeures; else nonJustifiees+=r.dureeHeures; });
+  return { justifiees:justifiees, nonJustifiees:nonJustifiees, total:justifiees+nonJustifiees, liste:liste };
+}
+
 function moyenne(valeurs){ if(!valeurs || valeurs.length===0) return null; var propres=valeurs.filter(function(v){return v!==null && v!=='' && typeof v==='number' && !isNaN(v);}); if(!propres.length)return null; var sum=propres.reduce(function(a,b){return a+b;},0); return sum/propres.length; }
 function round2(n){ return Math.round(n*100)/100; }
 function fmt(n){ return n==null ? "—" : round2(n).toFixed(2); }
@@ -774,6 +872,7 @@ var ICONS = {
   matieres:'<svg viewBox="0 0 24 24" fill="none"><path d="M5 4h11a2 2 0 0 1 2 2v14H7a2 2 0 0 1-2-2V4Z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/><path d="M5 17a2 2 0 0 1 2-2h11" stroke="currentColor" stroke-width="1.6"/></svg>',
   notes:'<svg viewBox="0 0 24 24" fill="none"><path d="M9 4h9a1 1 0 0 1 1 1v15l-3-2-3 2-3-2-3 2V8" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/><path d="M5 4h4v11H5a1 1 0 0 1-1-1V5a1 1 0 0 1 1-1Z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></svg>',
   appels:'<svg viewBox="0 0 24 24" fill="none"><path d="M5 4h14v16H5zM8 8h8M8 12h8M8 16h5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>',
+  historique:'<svg viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="9" stroke="currentColor" stroke-width="1.6"/><path d="M12 7v5l3.5 2" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>',
   bulletins:'<svg viewBox="0 0 24 24" fill="none"><path d="M6 3h9l4 4v14H6z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/><path d="M15 3v4h4M9 13h6M9 17h6M9 9h2" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>',
   utilisateurs:'<svg viewBox="0 0 24 24" fill="none"><circle cx="9" cy="8" r="3" stroke="currentColor" stroke-width="1.6"/><path d="M3.5 20c.8-3.2 3-5 5.5-5s4.7 1.8 5.5 5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/><path d="M15.5 4.5a3 3 0 0 1 0 5.8M17.5 20c-.5-2.6-1.8-4.3-3.9-5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>'
 };
@@ -784,6 +883,7 @@ var TABS = [
   {id:"matieres", label:"Matières"},
   {id:"notes", label:"Notes"},
   {id:"appels", label:"Liste d’appel"},
+  {id:"historique", label:"Historique absences"},
   {id:"bulletins", label:"Bulletins"},
   {id:"utilisateurs", label:"Utilisateurs", adminOnly:true}
 ];
@@ -829,6 +929,7 @@ function renderContent(){
     case 'matieres': el.innerHTML = readOnlyBanner() + viewMatieres(); break;
     case 'notes': el.innerHTML = readOnlyBanner() + viewNotes(); break;
     case 'appels': el.innerHTML = readOnlyBanner() + viewAppels(); break;
+    case 'historique': el.innerHTML = readOnlyBanner() + viewHistoriqueAbsences(); break;
     case 'bulletins': el.innerHTML = readOnlyBanner() + viewBulletins(); break;
     case 'utilisateurs': el.innerHTML = canManageUsers() ? viewUtilisateurs() : ''; break;
     default: el.innerHTML = "";
@@ -1069,10 +1170,15 @@ function viewAppels(){
   var head = '<div class="view-head"><div><h1>Liste d’appel</h1><p>Appel quotidien par classe : suivi numérique au jour le jour, registre imprimable, ou tableau de bord des absences.</p></div></div>'
     + '<div class="panel"><div class="field-grid">'
       + '<div class="field"><label>Classe</label><select id="appelClasse">'+opts+'</select></div>'
-      + '<div class="field"><label>Affichage</label><select id="appelMode"><option value="suivi"'+(mode==='suivi'?' selected':'')+'>Suivi quotidien (numérique)</option><option value="registre"'+(mode==='registre'?' selected':'')+'>Registre imprimable</option><option value="tableaubord"'+(mode==='tableaubord'?' selected':'')+'>Tableau de bord des absences</option></select></div>'
+      + '<div class="field"><label>Affichage</label><select id="appelMode"><option value="suivi"'+(mode==='suivi'?' selected':'')+'>Suivi quotidien (numérique)</option><option value="parmatiere"'+(mode==='parmatiere'?' selected':'')+'>Appel par matière (nouveau)</option><option value="registre"'+(mode==='registre'?' selected':'')+'>Registre imprimable</option><option value="tableaubord"'+(mode==='tableaubord'?' selected':'')+'>Tableau de bord des absences</option></select></div>'
     + '</div></div>';
 
   if(mode==='tableaubord') return head + renderTableauBordAbsences();
+  if(mode==='parmatiere'){
+    if(classes.length===0) return head + '<div class="panel"><div class="empty">Créez d\'abord une classe.</div></div>';
+    if(eleves.length===0) return head + '<div class="panel"><div class="empty">Aucun élève dans cette classe.</div></div>';
+    return head + renderAppelParMatiere(classeId, eleves);
+  }
 
   if(classes.length===0) return head + '<div class="panel"><div class="empty">Créez d\'abord une classe.</div></div>';
   if(eleves.length===0) return head + '<div class="panel"><div class="empty">Aucun élève dans cette classe. Créez d’abord une classe et ajoutez ses élèves.</div></div>';
@@ -1187,6 +1293,54 @@ function renderTableauBordAbsences(){
   + '</div>';
 }
 
+/* Appel par matière — saisie manuelle de la matière et des horaires réels au moment de l'appel
+   (jamais depuis un emploi du temps). Plusieurs appels possibles le même jour pour la même classe. */
+function renderAppelParMatiere(classeId, eleves){
+  var dis = writeGuardOk() ? '' : ' disabled';
+  var date = ui.appelMatDate || todayISO();
+  var vendrediMsg = isVendrediISO(date) ? '<div class="banner banner-warn"><span>Le vendredi n\'est pas un jour scolaire à Notaschool : choisissez une autre date avant d\'enregistrer cet appel.</span></div>' : '';
+  var evtsDuJour = getAppelsEvtDeClasseDate(classeId, date);
+  var matiere = ui.appelMatiereNom || '';
+  var hDebut = ui.appelMatHeureDebut || '';
+  var hFin = ui.appelMatHeureFin || '';
+  var dureeApercu = dureeHeuresEntre(hDebut, hFin);
+
+  var rows = eleves.map(function(e){
+    var cur = appelMatSaisie[e.id] || { statut:'present', justifiee:false, motif:'', observation:'' };
+    var isAbs = cur.statut==='absent';
+    return '<tr'+(isAbs?' class="row-absent"':'')+'>'
+      + '<td>'+esc(e.nom)+' '+esc(e.prenom)+'</td>'
+      + '<td><select data-parmat-statut="'+e.id+'"'+dis+'><option value="present"'+(cur.statut==='present'?' selected':'')+'>Présent</option><option value="absent"'+(isAbs?' selected':'')+'>Absent</option><option value="retard"'+(cur.statut==='retard'?' selected':'')+'>Retard</option></select></td>'
+      + '<td>'+(isAbs?'<label class="row" style="gap:4px;white-space:nowrap"><input type="checkbox" data-parmat-justifiee="'+e.id+'"'+(cur.justifiee?' checked':'')+dis+'> Justifiée</label>':'—')+'</td>'
+      + '<td>'+(isAbs?'<select data-parmat-motif="'+e.id+'"'+dis+'><option value="">—</option><option value="maladie"'+(cur.motif==='maladie'?' selected':'')+'>Maladie</option><option value="autorisation"'+(cur.motif==='autorisation'?' selected':'')+'>Autorisation parentale</option><option value="autre"'+(cur.motif==='autre'?' selected':'')+'>Autre</option></select>':'—')+'</td>'
+      + '<td>'+(isAbs?'<input type="text" data-parmat-observation="'+e.id+'" value="'+esc(cur.observation||'')+'" placeholder="Observation"'+dis+'>':'—')+'</td>'
+    + '</tr>';
+  }).join('');
+
+  var rowsExistants = evtsDuJour.map(function(ev){
+    var nbAbsents = Object.keys(ev.eleves||{}).filter(function(id){ return ev.eleves[id].statut==='absent'; }).length;
+    return '<tr><td>'+esc(ev.heureDebut)+'–'+esc(ev.heureFin)+'</td><td>'+esc(ev.matiere)+'</td><td>'+(ev.dureeHeures||0)+' h</td><td>'+nbAbsents+'</td>'
+      + '<td><button type="button" class="btn btn-sm btn-ghost" data-action="parmat-charger" data-evt="'+esc(ev.id)+'"'+dis+'>Modifier</button> '+rowDelete('appelsEvt', ev.id)+'</td></tr>';
+  }).join('');
+
+  return vendrediMsg
+  + '<div class="panel"><h2>Nouvel appel — matière</h2>'
+    + '<p class="hint" style="margin-top:0">Saisissez la matière et l\'horaire réel tel que constaté au moment de l\'appel (jamais depuis l\'emploi du temps).</p>'
+    + '<div class="field-grid">'
+      + '<div class="field"><label>Date</label><input type="date" id="appelMatDate" value="'+esc(date)+'"'+dis+'></div>'
+      + '<div class="field"><label>Matière</label><input type="text" id="appelMatiereNom" value="'+esc(matiere)+'" placeholder="Ex. Mathématiques"'+dis+'></div>'
+      + '<div class="field"><label>Heure de début</label><input type="time" id="appelMatHeureDebut" value="'+esc(hDebut)+'"'+dis+'></div>'
+      + '<div class="field"><label>Heure de fin</label><input type="time" id="appelMatHeureFin" value="'+esc(hFin)+'"'+dis+'></div>'
+    + '</div>'
+    + '<p class="hint">Durée retenue (heures entières, sans arrondi au supérieur) : <strong>'+dureeApercu+' h</strong></p>'
+    + '<div class="table-wrap"><table><thead><tr><th>Élève</th><th>Statut</th><th>Justifiée</th><th>Motif</th><th>Observation</th></tr></thead><tbody>'+rows+'</tbody></table></div>'
+    + '<div class="row" style="margin-top:10px"><button type="button" class="btn btn-primary" data-action="parmat-enregistrer" data-classe="'+classeId+'"'+dis+'>Enregistrer cet appel</button></div>'
+  + '</div>'
+  + '<div class="panel"><h2>Appels déjà enregistrés ce jour <span class="count">'+evtsDuJour.length+'</span></h2>'
+    + (evtsDuJour.length ? '<div class="table-wrap"><table><thead><tr><th>Horaire</th><th>Matière</th><th>Durée</th><th>Absents</th><th></th></tr></thead><tbody>'+rowsExistants+'</tbody></table></div>' : '<div class="empty">Aucun appel enregistré pour cette classe à cette date.</div>')
+  + '</div>';
+}
+
 /* Registre d'appel imprimable — reproduit le formulaire papier : 2 jours par page,
    créneaux Matin (1-5) et Après-midi (6-9), lignes Matières / Absents / Exclus / Émargement
    laissées vierges pour être remplies à la main. */
@@ -1259,6 +1413,146 @@ function renderAppelRegistre(classeId, eleves){
   + '</div>';
 }
 
+/* ================= view: historique détaillé des absences ================= */
+function viewHistoriqueAbsences(){
+  var classes = clasesTriees();
+  var classeOpts = '<option value="">Toutes les classes</option>'+classes.map(function(c){return '<option value="'+c.id+'"'+(ui.histClasse===c.id?' selected':'')+'>'+esc(c.nom)+'</option>';}).join('');
+  var recherche = (ui.histRecherche||'').trim().toLowerCase();
+
+  // élèves correspondant à la recherche / au filtre classe
+  var elevesBase = ui.histClasse ? elevesDe(ui.histClasse) : cache.eleves.slice();
+  var elevesMatch = elevesBase.filter(function(e){
+    if(!recherche) return true;
+    var hay = ((e.nom||'')+' '+(e.prenom||'')+' '+(e.matricule||'')).toLowerCase();
+    return hay.indexOf(recherche)>=0;
+  });
+
+  var toutesLignes = [];
+  elevesMatch.forEach(function(e){
+    heuresToutesEleve(e.id).forEach(function(r){
+      toutesLignes.push(Object.assign({}, r, { eleveNom:e.nom+' '+e.prenom, matricule:e.matricule||'' }));
+    });
+  });
+
+  var matieresDispo = Array.from(new Set(toutesLignes.map(function(r){ return r.matiere; }).filter(Boolean))).sort();
+  var matiereOpts = '<option value="">Toutes</option>'+matieresDispo.map(function(m){return '<option value="'+esc(m)+'"'+(ui.histMatiere===m?' selected':'')+'>'+esc(m)+'</option>';}).join('');
+
+  var filtrees = toutesLignes.filter(function(r){
+    if(ui.histTrimestre && String(r.trimestre)!==String(ui.histTrimestre)) return false;
+    if(ui.histMois && r.mois!==ui.histMois) return false;
+    if(ui.histSemaine && String(r.semaine)!==String(ui.histSemaine)) return false;
+    if(ui.histDate && r.date!==ui.histDate) return false;
+    if(ui.histJour && r.jour!==ui.histJour) return false;
+    if(ui.histMatiere && r.matiere!==ui.histMatiere) return false;
+    if(ui.histStatut && r.statut!==ui.histStatut) return false;
+    return true;
+  }).sort(function(a,b){ return (b.date||'').localeCompare(a.date||''); });
+
+  var rows = filtrees.map(function(r){
+    var duree = r.source==='legacy' ? fmtJours(r.dureeJours) : (r.dureeHeures+' h');
+    var justifCell = r.statut!=='absent' ? '—' : (r.justifieeValidee ? '<span class="pill pill-good">Justifiée (validée)</span>' : (r.justifiee ? '<span class="pill pill-gold">'+esc(JUSTIF_STATUTS[r.justificatifStatut]||'En attente')+'</span>' : '<span class="pill pill-muted">Non justifiée</span>'));
+    var validationCell = '—';
+    if(r.statut==='absent' && r.justifiee){
+      if(r.source==='evt' && canValiderJustificatifs()){
+        validationCell = '<select data-hist-evt-justif-statut="'+r.evtId+'|'+r.eleveId+'"><option value="en_attente"'+(r.justificatifStatut==='en_attente'?' selected':'')+'>En attente</option><option value="valide"'+(r.justificatifStatut==='valide'?' selected':'')+'>Validé</option><option value="refuse"'+(r.justificatifStatut==='refuse'?' selected':'')+'>Refusé</option></select>';
+      } else {
+        validationCell = esc(JUSTIF_STATUTS[r.justificatifStatut]||'En attente');
+      }
+    }
+    return '<tr>'
+      + '<td>'+esc(r.mois)+'</td><td>S'+esc(r.semaine)+'</td><td>'+esc(frDate(r.date))+'</td><td>'+esc(r.jour)+'</td>'
+      + '<td>'+esc(r.eleveNom)+(r.matricule?' <span class="hint">('+esc(r.matricule)+')</span>':'')+'</td>'
+      + '<td>'+esc(r.matiere)+(r.source==='legacy'?' <span class="pill pill-muted">Ancien format</span>':'')+'</td>'
+      + '<td>'+(r.heureDebut?esc(r.heureDebut)+'–'+esc(r.heureFin):'—')+'</td>'
+      + '<td>'+duree+'</td>'
+      + '<td>'+({present:'Présent',absent:'Absent',retard:'Retard'}[r.statut]||r.statut)+'</td>'
+      + '<td>'+justifCell+'</td>'
+      + '<td>'+validationCell+'</td>'
+    + '</tr>';
+  }).join('');
+
+  var totalJ=0, totalNJ=0;
+  filtrees.forEach(function(r){ if(r.statut!=='absent') return; var d = r.source==='legacy' ? r.dureeJours : r.dureeHeures; if(r.justifieeValidee) totalJ+=d; else totalNJ+=d; });
+
+  var resumeEleveHtml = '';
+  if(ui.histRecherche && elevesMatch.length===1){
+    var eUnique = elevesMatch[0];
+    var hUnique = calcHeuresEleve(eUnique.id, {});
+    var parMois = {};
+    hUnique.liste.forEach(function(r){ parMois[r.mois]=(parMois[r.mois]||0)+(r.justifieeValidee?0:r.dureeHeures); });
+    var moisRows = Object.keys(parMois).map(function(m){ return '<tr><td>'+esc(m)+'</td><td class="num tabnum">'+parMois[m]+' h</td></tr>'; }).join('');
+    resumeEleveHtml = '<div class="panel"><h2>Résumé — '+esc(eUnique.nom)+' '+esc(eUnique.prenom)+'</h2>'
+      + '<p class="hint" style="margin-top:0">Nouveau système (heures, appels par matière). Total justifié '+hUnique.justifiees+' h — non justifié '+hUnique.nonJustifiees+' h — total '+hUnique.total+' h.</p>'
+      + (moisRows ? '<div class="table-wrap"><table><thead><tr><th>Mois</th><th>Heures non justifiées</th></tr></thead><tbody>'+moisRows+'</tbody></table></div>' : '')
+      + '<div class="row" style="margin-top:10px"><button type="button" class="btn btn-primary btn-sm" data-action="print-releve" data-eleve="'+eUnique.id+'">Imprimer le relevé pour les parents</button></div>'
+    + '</div>';
+  }
+
+  return ''
+  + '<div class="view-head"><div><h1>Historique détaillé des absences</h1><p>Recherchez un élève (nom, prénom ou matricule) pour voir son détail complet et imprimer son relevé.</p></div></div>'
+  + '<div class="panel"><div class="field-grid">'
+    + '<div class="field"><label>Rechercher un élève</label><input type="text" id="histRecherche" value="'+esc(ui.histRecherche)+'" placeholder="Nom, prénom ou matricule"></div>'
+    + '<div class="field"><label>Classe</label><select id="histClasse">'+classeOpts+'</select></div>'
+    + '<div class="field"><label>Trimestre</label><select id="histTrimestre"><option value="">Tous</option><option value="1"'+(ui.histTrimestre==='1'?' selected':'')+'>Trimestre 1</option><option value="2"'+(ui.histTrimestre==='2'?' selected':'')+'>Trimestre 2</option><option value="3"'+(ui.histTrimestre==='3'?' selected':'')+'>Trimestre 3</option></select></div>'
+    + '<div class="field"><label>Mois</label><select id="histMois"><option value="">Tous</option>'+MOIS_FR.map(function(m){return '<option value="'+m+'"'+(ui.histMois===m?' selected':'')+'>'+m+'</option>';}).join('')+'</select></div>'
+    + '<div class="field"><label>Semaine</label><select id="histSemaine"><option value="">Toutes</option><option value="1"'+(ui.histSemaine==='1'?' selected':'')+'>Semaine 1</option><option value="2"'+(ui.histSemaine==='2'?' selected':'')+'>Semaine 2</option><option value="3"'+(ui.histSemaine==='3'?' selected':'')+'>Semaine 3</option><option value="4"'+(ui.histSemaine==='4'?' selected':'')+'>Semaine 4</option></select></div>'
+    + '<div class="field"><label>Date</label><input type="date" id="histDate" value="'+esc(ui.histDate)+'"></div>'
+    + '<div class="field"><label>Jour</label><select id="histJour"><option value="">Tous</option>'+Object.keys(JOURS_SEMAINE_ECOLE).map(function(k){return JOURS_SEMAINE_ECOLE[k];}).map(function(j){return '<option value="'+j+'"'+(ui.histJour===j?' selected':'')+'>'+j+'</option>';}).join('')+'</select></div>'
+    + '<div class="field"><label>Matière</label><select id="histMatiere">'+matiereOpts+'</select></div>'
+    + '<div class="field"><label>Statut</label><select id="histStatut"><option value="">Tous</option><option value="absent"'+(ui.histStatut==='absent'?' selected':'')+'>Absent</option><option value="retard"'+(ui.histStatut==='retard'?' selected':'')+'>Retard</option></select></div>'
+  + '</div></div>'
+  + resumeEleveHtml
+  + '<div class="panel"><h2>Résultats <span class="count">'+filtrees.length+'</span></h2>'
+    + '<p class="hint" style="margin-top:0">Total retenu : '+(totalJ+totalNJ)+' h ('+totalJ+' h justifiées validées, '+totalNJ+' h non justifiées / en attente). Les jours en « ancien format » sont comptés en journées, pas en heures.</p>'
+    + (filtrees.length
+      ? '<div class="table-wrap"><table><thead><tr><th>Mois</th><th>Sem.</th><th>Date</th><th>Jour</th><th>Élève</th><th>Matière</th><th>Horaire</th><th>Durée</th><th>Statut</th><th>Justificatif</th><th>Validation</th></tr></thead><tbody>'+rows+'</tbody></table></div>'
+      : '<div class="empty">Aucun résultat pour ces filtres.</div>')
+  + '</div>';
+}
+
+/* Relevé imprimable (navigateur) pour un élève, destiné aux parents. Réutilise le pattern
+   d'impression déjà en place pour les bulletins : CSS dédiée + window.print(). */
+function imprimerReleveAbsences(eleveId){
+  var e = cache.eleves.find(function(x){return x.id===eleveId;});
+  if(!e) return;
+  var classe = cache.classes.find(function(c){return c.id===e.classeId;}) || {nom:'—'};
+  var h = calcHeuresEleve(eleveId, {});
+  var lignes = heuresToutesEleve(eleveId).filter(function(r){return r.statut==='absent';});
+  var parTrimestre = {1:0,2:0,3:0}, parMois = {};
+  lignes.forEach(function(r){
+    var d = r.source==='legacy' ? (r.dureeJours*24) : r.dureeHeures; // simple indication, l'essentiel reste le détail ligne par ligne
+    if(r.trimestre) parTrimestre[r.trimestre] = (parTrimestre[r.trimestre]||0) + (r.justifieeValidee?0:(r.source==='legacy'?r.dureeJours:r.dureeHeures));
+    parMois[r.mois] = (parMois[r.mois]||0) + (r.justifieeValidee?0:(r.source==='legacy'?r.dureeJours:r.dureeHeures));
+  });
+  var rowsHtml = lignes.map(function(r){
+    var duree = r.source==='legacy' ? fmtJours(r.dureeJours) : (r.dureeHeures+' h');
+    return '<tr><td>'+esc(frDate(r.date))+'</td><td>'+esc(r.jour)+'</td><td>'+esc(r.matiere)+'</td><td>'+(r.heureDebut?esc(r.heureDebut)+'–'+esc(r.heureFin):'—')+'</td><td>'+duree+'</td><td>'+(r.justifieeValidee?'Justifiée':'Non justifiée')+'</td></tr>';
+  }).join('');
+  var moisHtml = Object.keys(parMois).map(function(m){return '<tr><td>'+esc(m)+'</td><td>'+parMois[m]+'</td></tr>';}).join('');
+
+  var win = window.open('', '_blank');
+  if(!win){ alert('Autorisez les fenêtres pop-up pour imprimer le relevé.'); return; }
+  var html = '<!doctype html><html lang="fr"><head><meta charset="utf-8"><title>Relevé d\'absences — '+esc(e.nom)+' '+esc(e.prenom)+'</title>'
+    + '<style>body{font-family:Arial,Helvetica,sans-serif;color:#111;padding:24px;max-width:860px;margin:0 auto}'
+    + 'h1{font-size:18px;margin:0 0 2px}h2{font-size:14px;margin:18px 0 6px}'
+    + '.head{text-align:center;border-bottom:2px solid #333;padding-bottom:10px;margin-bottom:16px}'
+    + '.ident{display:flex;justify-content:space-between;margin-bottom:12px;font-size:13px}'
+    + 'table{width:100%;border-collapse:collapse;font-size:12px;margin-bottom:14px}th,td{border:1px solid #999;padding:5px 7px;text-align:left}th{background:#eee}'
+    + '.totaux{font-size:13px;font-weight:bold;margin:10px 0}'
+    + '@media print{body{padding:0}}</style></head><body>'
+    + '<div class="head"><h1>'+esc((cache.school&&cache.school.nom)||'CEM-Lycée de Bouya')+'</h1><div>Relevé d\'absences — Année scolaire '+esc((cache.school&&cache.school.anneeScolaire)||'—')+'</div></div>'
+    + '<div class="ident"><div><strong>Élève :</strong> '+esc(e.nom)+' '+esc(e.prenom)+'<br><strong>Matricule :</strong> '+esc(e.matricule||'—')+'</div><div><strong>Classe :</strong> '+esc(classe.nom)+'</div></div>'
+    + '<h2>Détail des absences</h2>'
+    + (rowsHtml ? '<table><thead><tr><th>Date</th><th>Jour</th><th>Matière</th><th>Horaire</th><th>Durée</th><th>Statut</th></tr></thead><tbody>'+rowsHtml+'</tbody></table>' : '<p>Aucune absence enregistrée.</p>')
+    + '<h2>Totaux par mois (heures non justifiées)</h2>'
+    + (moisHtml ? '<table><thead><tr><th>Mois</th><th>Heures</th></tr></thead><tbody>'+moisHtml+'</tbody></table>' : '<p>—</p>')
+    + '<div class="totaux">Total : '+h.total+' h — dont '+h.justifiees+' h justifiées et '+h.nonJustifiees+' h non justifiées.</div>'
+    + '<p style="font-size:11px;color:#555;margin-top:24px">Document généré automatiquement — '+esc(frDate(todayISO()))+'</p>'
+    + '</body></html>';
+  win.document.write(html); win.document.close();
+  win.onload = function(){ win.focus(); win.print(); };
+}
+
 /* ================= view: bulletins ================= */
 function viewBulletins(){
   var classes = clasesTriees();
@@ -1301,6 +1595,8 @@ function renderSheet(e, classeId, tri){
   var annStats = tri===3 ? statsAnnuelle(classeId) : null;
   var absTri = calcAbsencesEleve(e.id, tri);
   var absTexte = absTri.total>0 ? (fmtJours(absTri.total)+' — '+fmtJours(absTri.justifiees)+' justifié(s), '+fmtJours(absTri.nonJustifiees)+' non justifié(s)') : '0 j';
+  var heuresTri = calcHeuresEleve(e.id, {trimestre:tri});
+  if(heuresTri.total>0){ absTexte += ' + ' + heuresTri.nonJustifiees + ' h non justifiée(s) (appels par matière)'; }
 
   var school = cache.school;
   var crest = school.logo ? '<img class="sheet-crest" src="'+school.logo+'" alt="">' : '<div class="sheet-crest-ph">'+ICONS.etablissement+'</div>';
@@ -1382,6 +1678,8 @@ function renderBilanAnnuel(e, conseilT3, annStats, absTri){
   var t1 = annStats.t1[e.id], t2 = annStats.t2[e.id], t3 = annStats.t3[e.id];
   var absAnnuelle = calcAbsencesEleve(e.id, null);
   var absAnnuelleTexte = absAnnuelle.total>0 ? (fmtJours(absAnnuelle.total)+' — '+fmtJours(absAnnuelle.justifiees)+' justifié(s), '+fmtJours(absAnnuelle.nonJustifiees)+' non justifié(s)') : '0 j';
+  var heuresAnnuelle = calcHeuresEleve(e.id, {});
+  if(heuresAnnuelle.total>0){ absAnnuelleTexte += ' + ' + heuresAnnuelle.nonJustifiees + ' h non justifiée(s)'; }
   return ''
   + '<div class="bilan-annuel">'
     + '<div class="table-wrap"><table><tbody>'
@@ -1402,11 +1700,11 @@ function renderBilanAnnuel(e, conseilT3, annStats, absTri){
 
 /* ================= view: utilisateurs (admin) ================= */
 function viewUtilisateurs(){
-  var creatableRoles = isAdmin() ? Object.keys(ROLES_LABELS) : ['enseignant','secretaire'];
+  var creatableRoles = isAdmin() ? Object.keys(ROLES_LABELS) : ['enseignant','secretaire','surveillant'];
   var roleOpts = creatableRoles.map(function(r){ return '<option value="'+r+'">'+ROLES_LABELS[r]+'</option>'; }).join('');
   var liste = (cache.profiles||[]).slice().sort(function(a,b){ return (a.identifiant||'').localeCompare(b.identifiant||'','fr'); });
   if(!isAdmin()){
-    liste = liste.filter(function(p){ return p.role==='enseignant' || p.role==='secretaire'; });
+    liste = liste.filter(function(p){ return p.role==='enseignant' || p.role==='secretaire' || p.role==='surveillant'; });
   }
 
   var rows = liste.map(function(p){
@@ -1523,6 +1821,8 @@ document.addEventListener('click', function(e){
       cache.matieres = cache.matieres.filter(function(m){return m.id!==id;});
       ui.deleteArmed=''; render();
       dbDelete("matieres", id);
+    } else if(kind==='appelsEvt'){
+      ui.deleteArmed=''; deleteAppelEvt(id); render();
     }
   }
   else if(action === 'add-utilisateur'){
@@ -1573,12 +1873,44 @@ document.addEventListener('click', function(e){
     ids.forEach(function(id){ setAppel(dateSA, classeSA, id, {statut:'absent'}); });
     appelSelection = {}; render();
   }
+  else if(action === 'parmat-enregistrer'){
+    var classePM = t.dataset.classe;
+    var date = ui.appelMatDate || todayISO();
+    var matiere = (ui.appelMatiereNom||'').trim();
+    var hD = ui.appelMatHeureDebut||'', hF = ui.appelMatHeureFin||'';
+    if(isVendrediISO(date)){ alert('Le vendredi n\'est pas un jour scolaire : choisissez une autre date.'); return; }
+    if(!matiere){ alert('Indiquez la matière de cet appel.'); return; }
+    if(!hD || !hF){ alert('Indiquez l\'heure de début et l\'heure de fin.'); return; }
+    if(dureeHeuresEntre(hD,hF)<=0){ alert('L\'heure de fin doit être après l\'heure de début (durée d\'au moins 1 heure entière).'); return; }
+    var id = ui.appelMatEditId || evtId(date, classePM, matiere, hD, hF);
+    var elevesMap = {};
+    elevesDe(classePM).forEach(function(el){
+      var s = appelMatSaisie[el.id] || {statut:'present',justifiee:false,motif:'',observation:''};
+      elevesMap[el.id] = { statut:s.statut||'present', justifiee:!!s.justifiee, motif:s.motif||'', observation:s.observation||'', piece:s.piece||null, justificatifStatut: (cache.appelsEvt[id]&&cache.appelsEvt[id].eleves&&cache.appelsEvt[id].eleves[el.id]&&cache.appelsEvt[id].eleves[el.id].justificatifStatut) || 'en_attente' };
+    });
+    setAppelEvt({ id:id, date:date, classeId:classePM, matiere:matiere, heureDebut:hD, heureFin:hF, eleves:elevesMap });
+    appelMatSaisie = {}; ui.appelMatiereNom=''; ui.appelMatHeureDebut=''; ui.appelMatHeureFin=''; ui.appelMatEditId=''; saveUi();
+    alert('Appel enregistré pour « '+matiere+' » ('+date+', '+hD+'–'+hF+').');
+    render();
+  }
+  else if(action === 'parmat-charger'){
+    var evL = cache.appelsEvt[t.dataset.evt]; if(!evL) return;
+    ui.appelMatDate = evL.date; ui.appelMatiereNom = evL.matiere; ui.appelMatHeureDebut = evL.heureDebut; ui.appelMatHeureFin = evL.heureFin; ui.appelMatEditId = evL.id;
+    appelMatSaisie = {};
+    Object.keys(evL.eleves||{}).forEach(function(eid){ appelMatSaisie[eid] = Object.assign({}, evL.eleves[eid]); });
+    saveUi(); render();
+  }
+  else if(action === 'print-releve'){
+    var eleveIdR = t.dataset.eleve;
+    imprimerReleveAbsences(eleveIdR);
+  }
 });
 
 document.addEventListener('change', function(e){
   var t = e.target;
   if(!writeGuardOk() && (t.dataset.path || t.dataset.classe || t.dataset.eleve || t.dataset.matiere || t.dataset.noteEleve || t.dataset.appelJour || t.dataset.conseilEleve || t.dataset.sheetDate || t.id==='logoInput' || t.hasAttribute('data-eleve-photo')
-    || t.dataset.appelStatut || t.dataset.appelPeriode || t.dataset.appelJustifiee || t.dataset.appelMotif || t.dataset.appelObservation || t.dataset.appelPiece || t.dataset.appelJustifStatut)) return;
+    || t.dataset.appelStatut || t.dataset.appelPeriode || t.dataset.appelJustifiee || t.dataset.appelMotif || t.dataset.appelObservation || t.dataset.appelPiece || t.dataset.appelJustifStatut
+    || t.dataset.parmatStatut || t.dataset.parmatJustifiee || t.dataset.parmatMotif || t.dataset.parmatObservation || t.dataset.histEvtJustifStatut)) return;
 
   if(t.id === 'importJsonInput' && t.files && t.files[0]){
     var reader = new FileReader();
@@ -1717,6 +2049,38 @@ document.addEventListener('change', function(e){
     callAdminApi('/api/admin-update-user', {userId:pid2, nomComplet:nomVal})
       .then(function(){ loadProfiles(); })
       .catch(function(err){ alert('Erreur : '+(err.message||err)); });
+    return;
+  }
+
+  /* ---- Appel par matière : saisie locale, non persistée tant que "Enregistrer cet appel" n'est pas cliqué ---- */
+  if(t.id === 'appelMatDate'){ ui.appelMatDate=t.value; saveUi(); render(); return; }
+  if(t.id === 'appelMatiereNom'){ ui.appelMatiereNom=t.value; saveUi(); render(); return; }
+  if(t.id === 'appelMatHeureDebut'){ ui.appelMatHeureDebut=t.value; saveUi(); render(); return; }
+  if(t.id === 'appelMatHeureFin'){ ui.appelMatHeureFin=t.value; saveUi(); render(); return; }
+  if(t.dataset.parmatStatut){
+    var idPS=t.dataset.parmatStatut; appelMatSaisie[idPS] = Object.assign({statut:'present',justifiee:false,motif:'',observation:''}, appelMatSaisie[idPS], {statut:t.value});
+    if(t.value!=='absent'){ appelMatSaisie[idPS].justifiee=false; appelMatSaisie[idPS].motif=''; appelMatSaisie[idPS].observation=''; }
+    render(); return;
+  }
+  if(t.dataset.parmatJustifiee){ var idPJ=t.dataset.parmatJustifiee; appelMatSaisie[idPJ]=Object.assign({statut:'absent'},appelMatSaisie[idPJ],{justifiee:t.checked}); return; }
+  if(t.dataset.parmatMotif){ var idPM=t.dataset.parmatMotif; appelMatSaisie[idPM]=Object.assign({statut:'absent'},appelMatSaisie[idPM],{motif:t.value}); return; }
+  if(t.dataset.parmatObservation){ var idPO=t.dataset.parmatObservation; appelMatSaisie[idPO]=Object.assign({statut:'absent'},appelMatSaisie[idPO],{observation:t.value}); return; }
+
+  /* ---- Historique détaillé des absences : filtres ---- */
+  if(t.id === 'histRecherche'){ ui.histRecherche=t.value; saveUi(); render(); return; }
+  if(t.id === 'histClasse'){ ui.histClasse=t.value; saveUi(); render(); return; }
+  if(t.id === 'histTrimestre'){ ui.histTrimestre=t.value; saveUi(); render(); return; }
+  if(t.id === 'histMois'){ ui.histMois=t.value; saveUi(); render(); return; }
+  if(t.id === 'histSemaine'){ ui.histSemaine=t.value; saveUi(); render(); return; }
+  if(t.id === 'histDate'){ ui.histDate=t.value; saveUi(); render(); return; }
+  if(t.id === 'histJour'){ ui.histJour=t.value; saveUi(); render(); return; }
+  if(t.id === 'histMatiere'){ ui.histMatiere=t.value; saveUi(); render(); return; }
+  if(t.id === 'histStatut'){ ui.histStatut=t.value; saveUi(); render(); return; }
+  if(t.dataset.histEvtJustifStatut){
+    if(!canValiderJustificatifs()) return;
+    var parts = t.dataset.histEvtJustifStatut.split('|'); var evtIdT=parts[0], eleveIdT=parts[1];
+    var ev = cache.appelsEvt[evtIdT];
+    if(ev && ev.eleves && ev.eleves[eleveIdT]){ ev.eleves[eleveIdT].justificatifStatut = t.value; setAppelEvt(ev); render(); }
     return;
   }
 });
