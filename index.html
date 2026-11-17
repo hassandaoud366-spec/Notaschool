@@ -240,10 +240,12 @@ tr.row-absent{background:var(--warn-soft)}
 .appel-table tfoot td:first-child{text-align:left; font-weight:700; background:var(--gold-soft); white-space:nowrap}
 .appel-nb{font-size:11.5px; color:var(--ink-soft); margin-top:12px}
 .appel-nb ol{margin:4px 0 0; padding-left:18px}
+.print-only{display:none}
+.appel-date-blank{display:inline-block; border-bottom:1px solid var(--ink); width:78px; height:14px}
 
 @media print{
   @page{ size:A4; margin:12mm; }
-  @page appel{ size:A4 landscape; margin:10mm; }
+  @page appel{ size:A4 portrait; margin:8mm; }
   .topbar, .tabs, .print-hint, .view-head, .panel, .banner{display:none !important}
   body{background:#fff; -webkit-print-color-adjust:exact; print-color-adjust:exact; color-adjust:exact;}
   main, .content-wrap{padding:0; margin:0; max-width:none}
@@ -252,8 +254,16 @@ tr.row-absent{background:var(--warn-soft)}
   .sheet table{page-break-inside:auto}
   .sheet tr{page-break-inside:avoid; page-break-after:auto}
   .sheet thead{display:table-header-group}
+  .sheet tfoot{display:table-row-group}
   .sheet-conseil, .bilan-annuel{page-break-inside:avoid}
   .appel-register{page:appel}
+  .appel-register .screen-only{display:none !important}
+  .appel-register .print-only{display:inline-block !important}
+  .appel-register .appel-table{font-size:8px}
+  .appel-register .appel-table th, .appel-register .appel-table td{padding:2px 3px}
+  .appel-register .appel-table tbody td, .appel-register .appel-table tfoot td{height:15px}
+  .appel-register .appel-head{grid-template-columns:1fr; gap:6px}
+  .appel-register .appel-titre{padding-block:4px}
 }
 @media (max-width:640px){
   .sheet{padding:18px}
@@ -1430,7 +1440,7 @@ function viewAppels(){
 
   if(mode==='registre'){
     return head
-      + '<div class="print-hint"><svg viewBox="0 0 24 24" fill="none"><path d="M6 9V3h12v6M6 18H4a1 1 0 0 1-1-1v-6a1 1 0 0 1 1-1h16a1 1 0 0 1 1 1v6a1 1 0 0 1-1 1h-2M6 14h12v7H6z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></svg><span>Le registre s\'imprime en paysage. Les colonnes horaires et les lignes du bas sont à remplir à la main. <strong class="mono">Ctrl+P</strong> / <strong class="mono">Cmd+P</strong> pour imprimer.</span></div>'
+      + '<div class="print-hint"><svg viewBox="0 0 24 24" fill="none"><path d="M6 9V3h12v6M6 18H4a1 1 0 0 1-1-1v-6a1 1 0 0 1 1-1h16a1 1 0 0 1 1 1v6a1 1 0 0 1-1 1h-2M6 14h12v7H6z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></svg><span>Le registre s\'imprime en portrait (vertical). La date, les colonnes horaires et les lignes du bas sont à remplir à la main — si la classe est nombreuse, l\'impression se poursuit automatiquement sur une ou plusieurs pages supplémentaires. <strong class="mono">Ctrl+P</strong> / <strong class="mono">Cmd+P</strong> pour imprimer.</span></div>'
       + renderAppelRegistre(classeId, eleves);
   }
 
@@ -1599,8 +1609,8 @@ function renderAppelRegistre(classeId, eleves){
   var dis = writeGuardOk() ? '' : ' disabled';
   var classe = cache.classes.find(function(c){ return c.id===classeId; }) || {nom:"—", professeurPrincipal:""};
   var school = cache.school;
-  var jour1 = ui.appelJour1 || todayISO();
-  var jour2 = ui.appelJour2 || addDaysISO(jour1, 1);
+  var jour1 = ui.appelJour1 || ''; // laissé vide : la date est écrite à la main sur le registre imprimé
+  var jour2 = ui.appelJour2 || '';
 
   var periodsHead = '<th>1</th><th>2</th><th>3</th><th>4</th><th>5</th><th>6</th><th>7</th><th>8</th><th>9</th>';
   var blankCells9 = '<td></td><td></td><td></td><td></td><td></td><td></td><td></td><td></td><td></td>';
@@ -1626,11 +1636,11 @@ function renderAppelRegistre(classeId, eleves){
       + '<div class="appel-box appel-titre">LISTE D\'APPEL</div>'
       + '<div class="appel-dates">'
         + '<div class="appel-box appel-date-box">'
-          + '<div class="appel-date-row"><span>DATE :</span><input type="date" data-appel-jour="1" value="'+esc(jour1)+'"'+dis+'></div>'
+          + '<div class="appel-date-row"><span>DATE :</span><input type="date" class="screen-only" data-appel-jour="1" value="'+esc(jour1)+'"'+dis+'><span class="print-only appel-date-blank"></span></div>'
           + '<div class="appel-jour-row">JOUR : <strong>1</strong></div>'
         + '</div>'
         + '<div class="appel-box appel-date-box">'
-          + '<div class="appel-date-row"><span>DATE :</span><input type="date" data-appel-jour="2" value="'+esc(jour2)+'"'+dis+'></div>'
+          + '<div class="appel-date-row"><span>DATE :</span><input type="date" class="screen-only" data-appel-jour="2" value="'+esc(jour2)+'"'+dis+'><span class="print-only appel-date-blank"></span></div>'
           + '<div class="appel-jour-row">JOUR : <strong>2</strong></div>'
         + '</div>'
       + '</div>'
