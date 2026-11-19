@@ -1447,6 +1447,7 @@ function viewClasses(){
       + '<td><select data-classe="'+c.id+'" data-field="niveau"'+dis+'>'+niveauOptions(c.niveau)+'</select></td>'
       + '<td><input type="text" data-classe="'+c.id+'" data-field="professeurPrincipal" value="'+esc(c.professeurPrincipal)+'" placeholder="Nom du professeur"'+dis+'></td>'
       + '<td class="tabnum">'+eff+'</td>'
+      + '<td>'+ (eff ? rowViderClasse(c.id, eff) : '') +'</td>'
       + '<td>'+ rowDelete('classe', c.id) +'</td>'
     + '</tr>';
   }).join('');
@@ -1472,7 +1473,7 @@ function viewClasses(){
   + '<div class="panel">'
     + '<h2>Classes <span class="count">'+cache.classes.length+'</span></h2>'
     + (cache.classes.length
-      ? '<div class="table-wrap"><table><thead><tr><th>Nom</th><th>Niveau</th><th>Professeur principal</th><th>Effectif</th><th></th></tr></thead><tbody>'+rows+'</tbody></table></div>'
+      ? '<div class="table-wrap"><table><thead><tr><th>Nom</th><th>Niveau</th><th>Professeur principal</th><th>Effectif</th><th></th><th></th></tr></thead><tbody>'+rows+'</tbody></table></div>'
       : '<div class="empty">Aucune classe pour l\'instant. Ajoutez-en une ci-dessus.</div>')
   + '</div>';
 }
@@ -1483,6 +1484,18 @@ function rowDelete(kind, id){
     return '<div class="confirm-box"><span>Supprimer ?</span><button type="button" class="btn btn-sm btn-danger" data-action="delete-confirm" data-kind="'+kind+'" data-id="'+id+'"'+dis+'>Oui</button><button type="button" class="btn btn-sm btn-ghost" data-action="delete-cancel">Non</button></div>';
   }
   return '<button type="button" class="btn btn-sm btn-ghost btn-danger" data-action="delete-arm" data-kind="'+kind+'" data-id="'+id+'" aria-label="Supprimer"'+dis+'><svg viewBox="0 0 24 24" width="14" height="14" fill="none"><path d="M4 7h16M9 7V5a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2m-9 0 1 13a1 1 0 0 0 1 1h8a1 1 0 0 0 1-1l1-13" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg></button>';
+}
+
+/* Bouton « Vider cette classe » : supprime en une fois tous les élèves rattachés à une classe
+   (par ex. avant de réimporter un fichier corrigé), sans toucher à la classe elle-même ni aux
+   matières. Même mécanisme de confirmation à deux temps (armer puis confirmer) que rowDelete,
+   et même portée de suppression qu'un retrait d'élève un par un (uniquement la table élèves). */
+function rowViderClasse(classeId, eff){
+  var dis = writeGuardOk() ? '' : ' disabled';
+  if(ui.deleteArmed === 'elevesClasse:'+classeId){
+    return '<div class="confirm-box"><span>Supprimer les '+eff+' élève(s) ?</span><button type="button" class="btn btn-sm btn-danger" data-action="delete-confirm" data-kind="elevesClasse" data-id="'+classeId+'"'+dis+'>Oui</button><button type="button" class="btn btn-sm btn-ghost" data-action="delete-cancel">Non</button></div>';
+  }
+  return '<button type="button" class="btn btn-sm btn-ghost btn-danger" data-action="delete-arm" data-kind="elevesClasse" data-id="'+classeId+'"'+dis+'>Vider cette classe</button>';
 }
 
 /* ================= view: élèves ================= */
@@ -2847,6 +2860,11 @@ document.addEventListener('click', function(e){
       cache.eleves = cache.eleves.filter(function(e){return e.id!==id;});
       ui.deleteArmed=''; render();
       dbDelete("eleves", id);
+    } else if(kind==='elevesClasse'){
+      var elevesAVider = cache.eleves.filter(function(e){return e.classeId===id;});
+      cache.eleves = cache.eleves.filter(function(e){return e.classeId!==id;});
+      ui.deleteArmed=''; render();
+      elevesAVider.forEach(function(e){ dbDelete("eleves", e.id); });
     } else if(kind==='matiere'){
       cache.matieres = cache.matieres.filter(function(m){return m.id!==id;});
       ui.deleteArmed=''; render();
