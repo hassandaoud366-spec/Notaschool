@@ -2655,7 +2655,7 @@ function renderSheet(e, classeId, tri){
         + '<dt>Matricule</dt><dd class="mono">'+esc(e.matricule || '—')+'</dd>'
         + '<dt>Élève</dt><dd class="nom-eleve">'+esc((e.nom||'').toUpperCase())+' '+esc(e.prenom)+'</dd>'
         + '<dt>Né(e) le</dt><dd>'+esc(frDate(e.dateNaissance))+'</dd>'
-        + '<dt>Classe</dt><dd>'+esc(classe.nom)+' ('+effectif+')</dd>'
+        + '<dt>Classe</dt><dd>'+esc(classe.nom)+'</dd>'
         + '<dt>Professeur principal</dt><dd>'+esc(classe.professeurPrincipal || '—')+'</dd>'
       + '</dl>'
       + photo
