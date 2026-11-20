@@ -465,7 +465,9 @@ tr.row-absent{background:var(--warn-soft)}
 .appel-table{font-size:10.5px}
 .appel-table th, .appel-table td{border:1px solid var(--line); padding:4px 5px; text-align:center}
 .appel-table thead th{background:var(--accent-soft); color:var(--accent); white-space:nowrap}
-.appel-table tbody td:nth-child(2){text-align:left; white-space:nowrap; font-size:.72em}
+.appel-table tbody td:nth-child(2){text-align:left; white-space:nowrap}
+.appel-table.appel-noms-tight tbody td:nth-child(2){font-size:.88em}
+.appel-table.appel-noms-xtight tbody td:nth-child(2){font-size:.72em}
 .appel-table tbody td, .appel-table tfoot td{min-width:16px; height:20px}
 .appel-table tfoot td:first-child{text-align:left; font-weight:700; background:var(--gold-soft); white-space:nowrap}
 .appel-nb{font-size:11.5px; color:var(--ink-soft); margin-top:12px}
@@ -477,6 +479,7 @@ tr.row-absent{background:var(--warn-soft)}
   @page{ size:A4; margin:12mm; }
   @page appel{ size:A4 portrait; margin:6mm; }
   @page appel-compact{ size:A4 portrait; margin:5mm; }
+  @page appel-xcompact{ size:A4 portrait; margin:4mm; }
   .topbar, .tabs, .print-hint, .view-head, .panel, .banner{display:none !important}
   body{background:#fff; -webkit-print-color-adjust:exact; print-color-adjust:exact; color-adjust:exact;}
   main, .content-wrap{padding:0; margin:0; max-width:none}
@@ -523,6 +526,24 @@ tr.row-absent{background:var(--warn-soft)}
   .appel-register.appel-compact .appel-meta{margin-bottom:3px}
   .appel-register.appel-compact .appel-nb{margin-top:3px; font-size:8px; line-height:1.15}
   .appel-register.appel-compact .appel-nb ol{margin-top:2px; padding-left:13px}
+
+  /* Au-delà de 50 élèves, même le mode .appel-compact ne suffit plus pour tout
+     tenir sur une seule page (tableau + bas de page Matières/Absents/Exclus/
+     Émargement) : le JS ajoute alors .appel-xcompact, encore plus resserré,
+     pour les classes exceptionnellement nombreuses (jusqu'à ~60 élèves). */
+  .appel-register.appel-xcompact{page:appel-xcompact; padding:4px}
+  .appel-register.appel-xcompact .appel-table{font-size:7.2px}
+  .appel-register.appel-xcompact .appel-table th, .appel-register.appel-xcompact .appel-table td{padding:1px 2px}
+  .appel-register.appel-xcompact .appel-table thead th{line-height:1.05}
+  .appel-register.appel-xcompact .appel-table tbody td, .appel-register.appel-xcompact .appel-table tfoot td{height:3.85mm}
+  .appel-register.appel-xcompact .appel-head{gap:4px; margin-bottom:2px}
+  .appel-register.appel-xcompact .appel-titre{padding-block:0px; font-size:10.5px}
+  .appel-register.appel-xcompact .appel-box{padding:1px 6px}
+  .appel-register.appel-xcompact .appel-ecole-nom{font-size:9.5px}
+  .appel-register.appel-xcompact .appel-ecole-annee{font-size:7px}
+  .appel-register.appel-xcompact .appel-meta{margin-bottom:2px; font-size:9.5px}
+  .appel-register.appel-xcompact .appel-nb{margin-top:2px; font-size:6.5px; line-height:1.05}
+  .appel-register.appel-xcompact .appel-nb ol{margin-top:1px; padding-left:11px}
 
   /* Forcer l'impression des couleurs (sinon certains navigateurs les omettent) */
   * { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
@@ -2594,48 +2615,76 @@ function imprimerListeNotes(classeId, matiereId){
   var eleves = elevesDe(classeId);
   var st = statsMatiere(classeId, matiereId, tri);
 
+  var school = cache.school || {};
+  /* Colonnes Devoir et Moyenne volontairement laissées VIERGES (à remplir à la main
+     sur le papier) : cette liste sert de feuille à imprimer, pas d'export des notes
+     déjà saisies dans l'application. */
   var rowsHtml = eleves.map(function(e, idx){
-    var entry = getNoteEntry(e.id, matiereId, tri);
-    var moy = st.moyennes[e.id];
     return '<tr>'
+      + '<td class="num">'+(idx+1)+'</td>'
       + '<td class="nom">'+esc((e.nom||'').toUpperCase())+' '+esc((e.prenom||'').toUpperCase())+'</td>'
-      + '<td>'+fmtDevNote(entry.valeurs[0])+'</td>'
-      + '<td>'+fmtDevNote(entry.valeurs[1])+'</td>'
-      + '<td>'+fmtDevNote(entry.valeurs[2])+'</td>'
-      + '<td>'+fmtDevNote(entry.valeurs[3])+'</td>'
-      + '<td class="moyenne">'+fmt(moy)+'</td>'
+      + '<td>'+esc(e.sexe||'—')+'</td>'
+      + '<td class="date">'+esc(frDate(e.dateNaissance))+'</td>'
+      + '<td>NR</td>'
+      + '<td></td><td></td><td></td><td></td>'
+      + '<td></td>'
     + '</tr>';
   }).join('');
 
   var win = window.open('', '_blank');
   if(!win){ alert('Autorisez les fenêtres pop-up pour imprimer la liste de notes.'); return; }
+  /* Mise en page compacte selon l'effectif, pour toujours tenir sur une seule page
+     (même logique à 3 paliers que la Liste d'appel). */
+  var compactCls = (eleves.length > 50) ? ' notes-xcompact' : ((eleves.length > 30) ? ' notes-compact' : '');
   var html = '<!doctype html><html lang="fr"><head><meta charset="utf-8"><title>Liste de notes — '+esc(classe.nom)+' — '+esc(matiere.nom)+'</title>'
     + '<style>'
-    + '@page{size:A4 portrait; margin:16mm 14mm}'
+    + '@page{size:A4 portrait; margin:14mm 12mm}'
+    + '@page notes-compact{size:A4 portrait; margin:9mm 10mm}'
+    + '@page notes-xcompact{size:A4 portrait; margin:5mm 8mm}'
     + '*{box-sizing:border-box}'
-    + 'body{font-family:"Segoe UI",Arial,Helvetica,sans-serif;color:#17223b;margin:0;padding:22px 26px}'
-    + '.titre{text-align:center;font-size:21px;font-weight:800;letter-spacing:.05em;color:#12295c;margin:0 0 16px}'
-    + '.meta{display:flex;justify-content:center;gap:16px;margin-bottom:22px;flex-wrap:wrap}'
-    + '.meta span{display:inline-block;padding:7px 20px;background:#eef5fd;border:1px solid #d7e4f7;border-radius:999px;font-size:13px;font-weight:600;color:#12295c}'
-    + '.meta span b{font-weight:700}'
-    + 'table{width:100%;border-collapse:collapse;font-size:12.5px}'
+    + 'body{font-family:"Segoe UI",Arial,Helvetica,sans-serif;color:#000;margin:0;padding:14px 18px;font-size:11px}'
+    + 'body.notes-compact{page:notes-compact; padding:8px 10px; font-size:9.5px}'
+    + 'body.notes-xcompact{page:notes-xcompact; padding:4px 6px; font-size:8px}'
+    + '.titre{text-align:center;font-size:15px;font-weight:600;margin:0 0 10px}'
+    + 'body.notes-compact .titre{font-size:12.5px;margin-bottom:6px}'
+    + 'body.notes-xcompact .titre{font-size:10.5px;margin-bottom:3px}'
+    + '.boxes{display:flex;gap:10px;margin-bottom:12px}'
+    + 'body.notes-compact .boxes{margin-bottom:7px}'
+    + 'body.notes-xcompact .boxes{gap:6px;margin-bottom:4px}'
+    + '.box{border:1px solid #000;border-radius:4px;padding:7px 12px;font-weight:600;font-size:12px;white-space:nowrap}'
+    + 'body.notes-compact .box{padding:4px 9px;font-size:10px}'
+    + 'body.notes-xcompact .box{padding:2px 7px;font-size:8.5px;border-radius:3px}'
+    + '.box.niveau{flex:1}'
+    + '.box.matiere{flex:1.6}'
+    + '.box.trimestre{flex:1}'
+    + 'table{width:100%;border-collapse:collapse;font-size:10.5px}'
+    + 'body.notes-compact table{font-size:9px}'
+    + 'body.notes-xcompact table{font-size:7.3px}'
     + 'thead{display:table-header-group}'
     + 'tr{break-inside:avoid; page-break-inside:avoid}'
-    + 'th{background:#1a3f7a;background:linear-gradient(135deg,#1a56c4,#12295c);color:#fff;padding:10px 9px;text-align:center;font-weight:700;letter-spacing:.02em;border:1px solid #12295c}'
-    + 'th:first-child{text-align:left;padding-left:14px}'
-    + 'col.col-nom{width:34%}col.col-dev{width:13%}col.col-moy{width:14%}'
-    + 'td{padding:8px 9px;border:1px solid #d7e2f0;text-align:center;vertical-align:middle}'
-    + 'td.nom{text-align:left;padding-left:14px;font-weight:600}'
-    + 'tbody tr:nth-child(even){background:#f4f8fd}'
-    + 'td.moyenne{font-weight:800;color:#12295c;background:#eaf1fb}'
-    + '.foot{margin-top:18px;font-size:11px;color:#667;text-align:right}'
+    + 'th{background:#dde6f2;color:#000;padding:6px 7px;text-align:center;font-weight:700;border:1px solid #000}'
+    + 'body.notes-compact th{padding:4px 5px}'
+    + 'body.notes-xcompact th{padding:2px 3px;line-height:1.1}'
+    + 'col.col-num{width:4%}col.col-nom{width:27%}col.col-sexe{width:6%}col.col-date{width:12%}col.col-statut{width:7%}col.col-dev{width:7.2%}col.col-moy{width:9%}'
+    + 'td{padding:5px 7px;border:1px solid #000;text-align:center;vertical-align:middle;height:22px}'
+    + 'body.notes-compact td{padding:3px 5px;height:16px}'
+    + 'body.notes-xcompact td{padding:1px 3px;height:11px}'
+    + 'td.nom{text-align:left;font-weight:600}'
+    + 'td.date{white-space:nowrap}'
+    + '.foot{margin-top:14px;font-size:10px;color:#555;text-align:right}'
+    + 'body.notes-compact .foot{margin-top:7px;font-size:8.5px}'
+    + 'body.notes-xcompact .foot{margin-top:3px;font-size:7px}'
     + '@media print{body{padding:0 4mm}}'
-    + '</style></head><body>'
+    + '</style></head><body class="'+compactCls.trim()+'">'
     + '<div class="titre">Liste de notes</div>'
-    + '<div class="meta"><span>Classe : <b>'+esc(classe.nom)+'</b></span><span>Matière : <b>'+esc(matiere.nom)+'</b></span></div>'
-    + '<table><colgroup><col class="col-nom"><col class="col-dev"><col class="col-dev"><col class="col-dev"><col class="col-dev"><col class="col-moy"></colgroup>'
-    + '<thead><tr><th>Nom et prénom</th><th>Dev1</th><th>Dev2</th><th>Dev3</th><th>Dev4</th><th>Moyenne</th></tr></thead>'
-    + '<tbody>'+(rowsHtml || '<tr><td colspan="6" style="text-align:center;color:#888">Aucun élève dans cette classe.</td></tr>')+'</tbody></table>'
+    + '<div class="boxes">'
+      + '<div class="box niveau">Niveau :</div>'
+      + '<div class="box matiere">Matière :</div>'
+      + '<div class="box trimestre">Trimestre :</div>'
+    + '</div>'
+    + '<table><colgroup><col class="col-num"><col class="col-nom"><col class="col-sexe"><col class="col-date"><col class="col-statut"><col class="col-dev"><col class="col-dev"><col class="col-dev"><col class="col-dev"><col class="col-moy"></colgroup>'
+    + '<thead><tr><th>N°</th><th>Nom des élèves</th><th>Sexe</th><th>Date nai</th><th>Statut</th><th>Dev_1</th><th>Dev_2</th><th>Dev_3</th><th>Dev_4</th><th>Moyenne</th></tr></thead>'
+    + '<tbody>'+(rowsHtml || '<tr><td colspan="10" style="text-align:center;color:#888">Aucun élève dans cette classe.</td></tr>')+'</tbody></table>'
     + '<div class="foot">Document généré automatiquement — '+esc(frDate(todayISO()))+'</div>'
     + '</body></html>';
   win.document.write(html); win.document.close();
@@ -2866,7 +2915,19 @@ function renderAppelRegistre(classeId, eleves){
     + '</tr>';
   }).join('');
 
-  var appelCompactCls = (eleves.length > 30) ? ' appel-compact' : '';
+  /* La colonne "Noms des élèves" garde sa taille normale tant que les noms restent
+     de longueur courante. Elle ne se réduit que si un ou plusieurs élèves de CETTE
+     classe ont un nom+prénom complet particulièrement long (rare, mais arrive avec
+     des noms composés) — et non simplement parce que l'effectif est élevé : une
+     petite classe avec des noms courts reste donc toujours affichée en taille
+     normale, et une grande classe avec des noms courts aussi. */
+  var maxNomLen = eleves.reduce(function(max, e){
+    var len = (((e.nom||'')+' '+(e.prenom||'')).trim()).length;
+    return len > max ? len : max;
+  }, 0);
+  var nomSizeCls = maxNomLen > 32 ? ' appel-noms-xtight' : (maxNomLen > 24 ? ' appel-noms-tight' : '');
+
+  var appelCompactCls = (eleves.length > 50) ? ' appel-xcompact' : ((eleves.length > 30) ? ' appel-compact' : '');
   return ''
   + '<div class="sheet appel-register'+appelCompactCls+'">'
     + '<div class="appel-head">'
@@ -2890,9 +2951,9 @@ function renderAppelRegistre(classeId, eleves){
       + '<div>Professeur principal : <strong>'+esc(classe.professeurPrincipal || '—')+'</strong></div>'
       + '<div>Classe <strong>'+esc(classe.nom)+'</strong></div>'
     + '</div>'
-    + '<div class="table-wrap"><table class="appel-table">'
+    + '<div class="table-wrap"><table class="appel-table'+nomSizeCls+'">'
       + '<colgroup>'
-        + '<col style="width:3.608%"><col style="width:25.722%"><col style="width:3.0%"><col style="width:9.0%"><col style="width:3.0%">'
+        + '<col style="width:3.608%"><col style="width:23.0%"><col style="width:4.2%"><col style="width:9.0%"><col style="width:4.5%">'
         + '<col style="width:3.093%"><col style="width:3.093%"><col style="width:3.093%"><col style="width:3.093%"><col style="width:3.093%">'
         + '<col style="width:3.093%"><col style="width:3.093%"><col style="width:3.093%"><col style="width:3.093%">'
         + '<col style="width:3.093%"><col style="width:3.093%"><col style="width:3.093%"><col style="width:3.093%"><col style="width:3.093%">'
