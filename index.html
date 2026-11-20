@@ -114,6 +114,19 @@ body::before{content:""; position:fixed; inset:0 0 auto; height:env(safe-area-in
 @keyframes pulse{0%,100%{opacity:1}50%{opacity:.35}}
 .me-chip{display:flex; align-items:center; gap:7px; background:rgba(255,255,255,.14); border-radius:999px; padding:3px 11px 3px 3px; font-size:11.5px; font-weight:600; flex:none; backdrop-filter:blur(6px)}
 .account-menu{position:relative; flex:none}
+.notif-menu{position:relative; flex:none}
+.notif-bell{position:relative; display:flex; align-items:center; justify-content:center; width:34px; height:34px; border-radius:999px; background:rgba(255,255,255,.14); border:0; color:#fff; cursor:pointer; backdrop-filter:blur(6px)}
+.notif-bell:hover{background:rgba(255,255,255,.22)}
+.notif-badge{position:absolute; top:-3px; right:-3px; min-width:16px; height:16px; padding:0 4px; border-radius:999px; background:var(--danger); color:#fff; font-size:10px; font-weight:700; line-height:16px; text-align:center}
+.notif-dropdown{position:absolute; top:calc(100% + 10px); right:0; width:320px; max-height:380px; overflow:auto; background:var(--surface); border:1px solid var(--line); border-radius:var(--radius-md); box-shadow:var(--shadow-lg); padding:6px; z-index:60; color:var(--ink)}
+.notif-dropdown-head{padding:9px 11px 9px; border-bottom:1px solid var(--line); margin-bottom:6px; font-weight:700; font-size:13px}
+.notif-dropdown-list{display:flex; flex-direction:column; gap:2px}
+.notif-item{padding:9px 11px; border-radius:var(--radius-sm); font-size:12.5px; line-height:1.45}
+.notif-item:hover{background:var(--surface-2)}
+.notif-item-action{font-weight:700; color:var(--ink)}
+.notif-item-date{font-size:11px; color:var(--ink-soft); margin-top:2px}
+.notif-empty{padding:14px 11px; font-size:12.5px; color:var(--ink-soft); text-align:center}
+@media (max-width:480px){ .notif-dropdown{right:-8px; width:min(320px, calc(100vw - 32px))} }
 .me-chip{border:0; cursor:pointer; color:inherit; font:inherit; -webkit-appearance:none; appearance:none}
 .me-chip .chip-chevron{opacity:.75; transition:transform .15s}
 .me-chip[aria-expanded="true"] .chip-chevron{transform:rotate(180deg)}
@@ -548,6 +561,16 @@ tr.row-absent{background:var(--warn-soft)}
           </div>
         </div>
         <div class="spacer"></div>
+        <div class="notif-menu" id="notifMenu" hidden>
+          <button type="button" class="notif-bell" id="notifBell" data-action="toggle-notif-menu" aria-haspopup="true" aria-expanded="false" aria-label="Notifications">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>
+            <span class="notif-badge" id="notifBadge" hidden>0</span>
+          </button>
+          <div class="notif-dropdown" id="notifDropdown" hidden>
+            <div class="notif-dropdown-head">Notifications</div>
+            <div class="notif-dropdown-list" id="notifDropdownList"></div>
+          </div>
+        </div>
         <div class="account-menu">
           <button type="button" class="me-chip" id="meChip" hidden data-action="toggle-account-menu" aria-haspopup="true" aria-expanded="false"></button>
           <div class="account-dropdown" id="accountDropdown" hidden>
@@ -611,7 +634,7 @@ function loadUi(){
   var d = { tab:"etablissement", trimestre:1, classeFiltre:"", notesMatiere:"", bulletinMode:"un", bulletinEleve:"", deleteArmed:"", appelMode:"suivi", appelJour1:"", appelJour2:"",
     absDashEleve:"", absDashClasse:"", absDashDateDebut:"", absDashDateFin:"", absDashTrimestre:"", absDashJustifiee:"",
     appelMatDate:"", appelMatiereNom:"", appelMatHeureDebut:"", appelMatHeureFin:"", appelMatEditId:"",
-    histRecherche:"", histClasse:"", histTrimestre:"", histMois:"", histSemaine:"", histDate:"", histJour:"", histMatiere:"", histStatut:"" };
+    histRecherche:"", histClasse:"", histTrimestre:"", histMois:"", histSemaine:"", histDate:"", histJour:"", histMatiere:"", histStatut:"", archiveQuery:"", passageClasseSource:"", notifLastSeen:"" };
   try{ var raw = localStorage.getItem(LS_KEY); if(raw) return Object.assign(d, JSON.parse(raw)); }catch(e){}
   return d;
 }
@@ -620,6 +643,7 @@ var ui = loadUi();
 
 /* ================= shared cache, fed by live snapshots ================= */
 var appelSelection = {};
+var passageState = {}; // { eleveId: { statut:'admis'|'redouble'|'part', cible:classeId } }
 var appelMatSaisie = {}; // saisie en cours (non persistée tant que l'appel-matière n'est pas enregistré)
 var importEleves = null; // état transitoire de l'import Excel/CSV en cours : {step, validRows, invalidRows, totalLignes, fichierNom, resultat, progress}
 var importOrientation = null; // état transitoire de l'import du modèle Orientation (9e) : {step, validRows, invalidRows, totalLignes, fichierNom, resultat}
@@ -627,7 +651,7 @@ var importVoeux = null; // état transitoire de l'import du modèle Vœux 2nde :
 var cache = {
   school: { nom:"CEM-Lycée de Bouya", telephone:"", email:"", anneeScolaire:"" },
   classes: [], eleves: [], matieres: [],
-  anneesScolaires: [], anneeActive: '',
+  anneesScolaires: [], anneeActive: '', historique: [],
   notes: {},    // key eleveId_matiereId_trimestre -> {valeurs, appreciation, eleveId, matiereId, trimestre}
   conseil: {},  // key eleveId_trimestre -> {absences, appreciationGlobale, date, eleveId, trimestre}
   appels: {},   // key date_classe_eleve -> {date, classeId, eleveId, statut}  (ancien format, jour/demi-jour)
@@ -666,17 +690,30 @@ function revealShell(){
   if(canManageUsers()) loadProfiles();
 }
 function markAllLoaded(){ cache.loaded={school:true,classes:true,eleves:true,matieres:true,notes:true,conseil:true}; }
-function payloadFromCache(){ return {school:cache.school,classes:cache.classes,eleves:cache.eleves,matieres:cache.matieres,notes:cache.notes,conseil:cache.conseil,appels:cache.appels,appelsEvt:cache.appelsEvt,anneesScolaires:cache.anneesScolaires,anneeActive:cache.anneeActive}; }
+function payloadFromCache(){ return {school:cache.school,classes:cache.classes,eleves:cache.eleves,matieres:cache.matieres,notes:cache.notes,conseil:cache.conseil,appels:cache.appels,appelsEvt:cache.appelsEvt,anneesScolaires:cache.anneesScolaires,anneeActive:cache.anneeActive,historique:cache.historique}; }
+function logActivite(action, details){
+  cache.historique = cache.historique || [];
+  cache.historique.push({
+    id: uid(),
+    date: new Date().toISOString(),
+    auteurNom: (viewerProfile && (viewerProfile.full_name||viewerProfile.identifiant)) || 'Système',
+    auteurRole: viewerProfile ? (ROLES_LABELS[viewerProfile.role]||viewerProfile.role) : '',
+    action: action,
+    details: details || ''
+  });
+  if(cache.historique.length > 2000) cache.historique = cache.historique.slice(-2000);
+}
 function ensureAnneeScolaire(){
   cache.anneesScolaires = cache.anneesScolaires || [];
   if(!cache.anneesScolaires.length){
     var lib = (cache.school && cache.school.anneeScolaire) || '2025-2026';
     var id = 'an_' + lib.replace(/[^0-9A-Za-z]/g,'');
-    cache.anneesScolaires.push({ id:id, libelle:lib, dateDebut:'', dateFin:'', t1Debut:'', t1Fin:'', t2Debut:'', t2Fin:'', t3Debut:'', t3Fin:'' });
+    cache.anneesScolaires.push({ id:id, libelle:lib, dateDebut:'', dateFin:'', t1Debut:'', t1Fin:'', t2Debut:'', t2Fin:'', t3Debut:'', t3Fin:'', cloturee:false, clotureePar:'', clotureeLe:'' });
     cache.anneeActive = id;
   } else if(!cache.anneeActive || !cache.anneesScolaires.some(function(a){return a.id===cache.anneeActive;})){
     cache.anneeActive = cache.anneesScolaires[0].id;
   }
+  cache.anneesScolaires.forEach(function(a){ if(typeof a.cloturee === 'undefined') a.cloturee = false; });
   cache.classes.forEach(function(c){ if(!c.anneeId) c.anneeId = cache.anneeActive; });
 }
 function applyPayload(p){
@@ -686,6 +723,7 @@ function applyPayload(p){
   cache.conseil=p.conseil&&typeof p.conseil==='object'?p.conseil:{}; cache.appels=p.appels&&typeof p.appels==='object'?p.appels:{};
   cache.appelsEvt=p.appelsEvt&&typeof p.appelsEvt==='object'?p.appelsEvt:{};
   cache.anneesScolaires=Array.isArray(p.anneesScolaires)?p.anneesScolaires:[]; cache.anneeActive=p.anneeActive||'';
+  cache.historique=Array.isArray(p.historique)?p.historique:[];
   ensureAnneeScolaire();
   markAllLoaded();
 }
@@ -790,7 +828,19 @@ async function loadViewerProfile(){
 function isAdmin(){ return !!(viewerProfile && viewerProfile.role === 'admin'); }
 function isDirecteur(){ return !!(viewerProfile && viewerProfile.role === 'directeur'); }
 function isSurveillant(){ return !!(viewerProfile && viewerProfile.role === 'surveillant'); }
+function isEnseignant(){ return !!(viewerProfile && viewerProfile.role === 'enseignant'); }
+function isSecretaire(){ return !!(viewerProfile && viewerProfile.role === 'secretaire'); }
 function canManageUsers(){ return isAdmin() || isDirecteur(); }
+/* Droits précis par rôle (V1) : la secrétaire gère les inscriptions (classes/élèves), l'enseignant
+   gère notes/appréciations et l'appel, le surveillant gère uniquement l'appel/les absences.
+   Admin et directeur gardent un accès complet. Ces fonctions se combinent toujours avec
+   writeGuardOkDonnees() (protection écriture + année non clôturée) au point d'utilisation. */
+function canEditClasses(){ return isAdmin() || isDirecteur() || isSecretaire(); }
+function canEditEleves(){ return isAdmin() || isDirecteur() || isSecretaire(); }
+function canEditMatieres(){ return isAdmin() || isDirecteur(); }
+function canEditNotes(){ return isAdmin() || isDirecteur() || isEnseignant(); }
+function canEditConseil(){ return isAdmin() || isDirecteur() || isEnseignant(); }
+function canEditAppels(){ return isAdmin() || isDirecteur() || isEnseignant() || isSurveillant(); }
 /* Validation des justificatifs d'absence : réservée à l'administration (admin + directeur). */
 function canValiderJustificatifs(){ return isAdmin() || isDirecteur(); }
 function canTelechargerBulletin(){ return isAdmin() || isDirecteur(); }
@@ -971,6 +1021,8 @@ function flashSync(state,label){
   clearTimeout(syncFlashTimer); if(state!=='busy') syncFlashTimer=setTimeout(function(){dot.className='sync-dot';lbl.textContent='Synchronisé';},1800);
 }
 function writeGuardOk(){ return !readOnlyForced && !!viewer; }
+function anneeActiveEstCloturee(){ var a = (cache.anneesScolaires||[]).find(function(x){return x.id===cache.anneeActive;}); return !!(a && a.cloturee); }
+function writeGuardOkDonnees(){ return writeGuardOk() && !anneeActiveEstCloturee(); }
 function handleWriteError(err){ flashSync('off','Erreur de synchronisation'); console.error('Supabase write error:',err); alert('Enregistrement impossible : '+(err&&err.message?err.message:'vérifiez les droits Supabase et votre connexion.')); }
 function persistPayload(){
   if(!supabase || !viewer) return Promise.reject(new Error('Utilisateur non connecté'));
@@ -1005,6 +1057,18 @@ function elevesDe(classeId){ return cache.eleves.filter(function(e){ return e.cl
 function matieresDe(classeId){ return cache.matieres.filter(function(m){ return m.classeId===classeId; }).sort(function(a,b){ return (a.nom||'').localeCompare(b.nom||'','fr'); }); }
 function classesDeNiveau(niveau){ return cache.classes.filter(function(c){ return c.niveau===niveau && (!cache.anneeActive || c.anneeId===cache.anneeActive); }); }
 function elevesAnneeActive(){ var ids={}; clasesTriees().forEach(function(c){ids[c.id]=true;}); return cache.eleves.filter(function(e){ return ids[e.classeId]; }); }
+function anneeLibelle(anneeId){ var a = (cache.anneesScolaires||[]).find(function(x){return x.id===anneeId;}); return a ? a.libelle : '—'; }
+function rechercherEleveToutesAnnees(q){
+  q = (q||'').trim().toLowerCase();
+  if(!q) return [];
+  return cache.eleves.filter(function(e){
+    var hay = ((e.nom||'')+' '+(e.prenom||'')+' '+(e.matricule||'')).toLowerCase();
+    return hay.indexOf(q) !== -1;
+  }).map(function(e){
+    var classe = cache.classes.find(function(c){return c.id===e.classeId;}) || {};
+    return { eleve:e, classe:classe, anneeId:classe.anneeId, anneeLib:anneeLibelle(classe.anneeId) };
+  }).sort(function(a,b){ return (b.anneeLib||'').localeCompare(a.anneeLib||''); });
+}
 function matieresAnneeActive(){ var ids={}; clasesTriees().forEach(function(c){ids[c.id]=true;}); return cache.matieres.filter(function(m){ return ids[m.classeId]; }); }
 function elevesDeNiveau(niveau){
   var ids = {}; classesDeNiveau(niveau).forEach(function(c){ ids[c.id]=true; });
@@ -1014,7 +1078,7 @@ function elevesDeNiveau(niveau){
 function noteKey(eleveId, matiereId, trimestre){ return eleveId+"_"+matiereId+"_"+trimestre; }
 function getNoteEntry(eleveId, matiereId, trimestre){ return cache.notes[noteKey(eleveId,matiereId,trimestre)] || { valeurs:[], appreciation:"" }; }
 function setNoteEntry(eleveId, matiereId, trimestre, patch){
-  if(!writeGuardOk()) return;
+  if(!writeGuardOkDonnees() || !canEditNotes()) return;
   var key = noteKey(eleveId, matiereId, trimestre);
   var cur = cache.notes[key] || { valeurs:[], appreciation:"" };
   var merged = Object.assign({}, cur, patch, { eleveId:eleveId, matiereId:matiereId, trimestre:trimestre, updatedAt: Date.now(), updatedBy: viewer && viewer.id || null });
@@ -1027,7 +1091,7 @@ function conseilKey(eleveId, trimestre){ return eleveId+"_"+trimestre; }
 var CONSEIL_DEFAULT = { absences:"0 heure(s)", appreciationGlobale:"", date:"", conduite:"", absencesAnnuelles:"0 heure(s)", decision:"" };
 function getConseil(eleveId, trimestre){ return Object.assign({}, CONSEIL_DEFAULT, cache.conseil[conseilKey(eleveId,trimestre)] || {}); }
 function setConseil(eleveId, trimestre, patch){
-  if(!writeGuardOk()) return;
+  if(!writeGuardOkDonnees() || !canEditConseil()) return;
   var key = conseilKey(eleveId, trimestre);
   var cur = Object.assign({}, CONSEIL_DEFAULT, cache.conseil[key] || {});
   var merged = Object.assign({}, cur, patch, { eleveId:eleveId, trimestre:trimestre, updatedAt: Date.now(), updatedBy: viewer && viewer.id || null });
@@ -1055,7 +1119,7 @@ function getAppel(date, classeId, eleveId){
   };
 }
 function setAppel(date, classeId, eleveId, patch){
-  if(!writeGuardOk()) return;
+  if(!writeGuardOkDonnees() || !canEditAppels()) return;
   var cur = getAppel(date, classeId, eleveId);
   var merged = Object.assign({}, cur, patch, { date:date, classeId:classeId, eleveId:eleveId, anneeScolaire: (cache.school&&cache.school.anneeScolaire)||'' });
   cache.appels[appelKey(date,classeId,eleveId)] = merged;
@@ -1110,7 +1174,7 @@ function getAppelsEvtDeClasseDate(classeId, date){
     .sort(function(a,b){ return (a.heureDebut||'').localeCompare(b.heureDebut||''); });
 }
 function setAppelEvt(evt){
-  if(!writeGuardOk()) return;
+  if(!writeGuardOkDonnees() || !canEditAppels()) return;
   evt.dureeHeures = dureeHeuresEntre(evt.heureDebut, evt.heureFin);
   evt.anneeScolaire = (cache.school&&cache.school.anneeScolaire)||'';
   if(!evt.creeLe) evt.creeLe = new Date().toISOString();
@@ -1119,7 +1183,7 @@ function setAppelEvt(evt){
   cache.appelsEvt[evt.id] = evt;
   dbSet('appelsEvt', evt.id, evt);
 }
-function deleteAppelEvt(id){ if(!writeGuardOk()) return; delete cache.appelsEvt[id]; dbDelete('appelsEvt', id); }
+function deleteAppelEvt(id){ if(!writeGuardOkDonnees() || !canEditAppels()) return; delete cache.appelsEvt[id]; dbDelete('appelsEvt', id); }
 
 /* Liste à plat de tous les enregistrements d'absence/retard d'un élève pour le nouveau système
    (un enregistrement par appel-matière où l'élève n'est pas « présent »). */
@@ -1287,6 +1351,8 @@ function filePieceToDataUrl(file, cb){
 var ICONS = {
   etablissement:'<svg viewBox="0 0 24 24" fill="none"><path d="M4 21V9l8-5 8 5v12" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/><path d="M9 21v-7h6v7" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></svg>',
   annees:'<svg viewBox="0 0 24 24" fill="none"><rect x="3" y="5" width="18" height="16" rx="2" stroke="currentColor" stroke-width="1.6"/><path d="M3 10h18M8 3v4M16 3v4" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>',
+  archives:'<svg viewBox="0 0 24 24" fill="none"><circle cx="10.5" cy="10.5" r="6.5" stroke="currentColor" stroke-width="1.6"/><path d="M15.5 15.5 21 21" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>',
+  passage:'<svg viewBox="0 0 24 24" fill="none"><path d="M4 12h13M12 6l5 6-5 6" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>',
   classes:'<svg viewBox="0 0 24 24" fill="none"><rect x="3" y="4" width="18" height="13" rx="2" stroke="currentColor" stroke-width="1.6"/><path d="M8 21h8M12 17v4" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>',
   eleves:'<svg viewBox="0 0 24 24" fill="none"><circle cx="9" cy="8" r="3" stroke="currentColor" stroke-width="1.6"/><path d="M3.5 20c.8-3.2 3-5 5.5-5s4.7 1.8 5.5 5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/><circle cx="17.5" cy="9" r="2.3" stroke="currentColor" stroke-width="1.6"/><path d="M15.2 20c.5-2.3 1.8-3.8 3.6-4.2" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>',
   matieres:'<svg viewBox="0 0 24 24" fill="none"><path d="M5 4h11a2 2 0 0 1 2 2v14H7a2 2 0 0 1-2-2V4Z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/><path d="M5 17a2 2 0 0 1 2-2h11" stroke="currentColor" stroke-width="1.6"/></svg>',
@@ -1294,19 +1360,23 @@ var ICONS = {
   appels:'<svg viewBox="0 0 24 24" fill="none"><path d="M5 4h14v16H5zM8 8h8M8 12h8M8 16h5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>',
   historique:'<svg viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="9" stroke="currentColor" stroke-width="1.6"/><path d="M12 7v5l3.5 2" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>',
   bulletins:'<svg viewBox="0 0 24 24" fill="none"><path d="M6 3h9l4 4v14H6z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/><path d="M15 3v4h4M9 13h6M9 17h6M9 9h2" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>',
-  utilisateurs:'<svg viewBox="0 0 24 24" fill="none"><circle cx="9" cy="8" r="3" stroke="currentColor" stroke-width="1.6"/><path d="M3.5 20c.8-3.2 3-5 5.5-5s4.7 1.8 5.5 5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/><path d="M15.5 4.5a3 3 0 0 1 0 5.8M17.5 20c-.5-2.6-1.8-4.3-3.9-5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>'
+  utilisateurs:'<svg viewBox="0 0 24 24" fill="none"><circle cx="9" cy="8" r="3" stroke="currentColor" stroke-width="1.6"/><path d="M3.5 20c.8-3.2 3-5 5.5-5s4.7 1.8 5.5 5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/><path d="M15.5 4.5a3 3 0 0 1 0 5.8M17.5 20c-.5-2.6-1.8-4.3-3.9-5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>',
+  journal:'<svg viewBox="0 0 24 24" fill="none"><path d="M5 4h11l3 3v13H5z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/><path d="M9 10h7M9 14h7M9 18h4" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>'
 };
 var TABS = [
   {id:"etablissement", label:"Établissement"},
   {id:"annees", label:"Années scolaires"},
+  {id:"archives", label:"Archives élèves", adminOnly:true},
+  {id:"passage", label:"Passage de classe", adminOnly:true},
   {id:"classes", label:"Classes"},
   {id:"eleves", label:"Élèves"},
-  {id:"matieres", label:"Matières"},
-  {id:"notes", label:"Notes"},
-  {id:"appels", label:"Liste d’appel"},
-  {id:"historique", label:"Historique absences"},
+  {id:"matieres", label:"Matières", hideFor:['surveillant']},
+  {id:"notes", label:"Notes", hideFor:['secretaire','surveillant']},
+  {id:"appels", label:"Liste d’appel", hideFor:['secretaire']},
+  {id:"historique", label:"Historique absences", hideFor:['secretaire']},
   {id:"bulletins", label:"Bulletins"},
-  {id:"utilisateurs", label:"Utilisateurs", adminOnly:true}
+  {id:"utilisateurs", label:"Utilisateurs", adminOnly:true},
+  {id:"journal", label:"Journal d'activité", adminOnly:true}
 ];
 /* Niveaux de classe : utilisés pour filtrer les élèves de 9e (orientation) et de 2nde (vœux). */
 var NIVEAUX = ["6e","7e","8e","9e","2nde","1ère","Terminale"];
@@ -1326,6 +1396,90 @@ function renderMeChip(){
   chip.querySelector('span').textContent = name + (role ? ' · '+role : '');
   var nameEl = document.getElementById('accountDropdownName'); if(nameEl) nameEl.textContent = name;
   var roleEl = document.getElementById('accountDropdownRole'); if(roleEl) roleEl.textContent = role;
+}
+
+/* ================= notifications ================= */
+/* V1 : un centre de notifications léger, sans back-end dédié. Il relit cache.historique
+   (déjà alimenté par logActivite) et filtre un sous-ensemble d'événements notables par rôle,
+   plus un compteur dynamique de justificatifs d'absence en attente de validation. Les
+   notifications sont considérées « vues » dès l'ouverture du menu (horodatage ui.notifLastSeen,
+   persisté comme le reste de l'UI) — il n'y a pas de suivi lu/non-lu par personne côté serveur. */
+var NOTIF_TYPES = {
+  'Clôture année scolaire': null,
+  'Réouverture année scolaire': null,
+  "Changement d'année active": null,
+  'Création année scolaire': ['admin','directeur'],
+  'Passage de classe': ['admin','directeur'],
+  'Suppression classe': ['admin','directeur'],
+  'Suppression élève': ['admin','directeur'],
+  'Suppression matière': ['admin','directeur'],
+  'Classe vidée': ['admin','directeur'],
+  'Création compte': ['admin','directeur'],
+  'Réinitialisation mot de passe': ['admin','directeur'],
+  'Désactivation compte': ['admin','directeur'],
+  'Réactivation compte': ['admin','directeur']
+};
+function notifsPourViewer(){
+  if(!viewerProfile) return [];
+  var role = viewerProfile.role;
+  return (cache.historique||[]).filter(function(h){
+    if(!NOTIF_TYPES.hasOwnProperty(h.action)) return false;
+    var allowed = NOTIF_TYPES[h.action];
+    return !allowed || allowed.indexOf(role) !== -1;
+  }).slice().reverse().slice(0, 20);
+}
+function nbJustificatifsEnAttente(){
+  if(!canValiderJustificatifs()) return 0;
+  var n = 0;
+  Object.keys(cache.appels||{}).forEach(function(k){
+    var a = cache.appels[k];
+    if(a && a.justifiee && (a.justificatifStatut||'en_attente')==='en_attente') n++;
+  });
+  Object.keys(cache.appelsEvt||{}).forEach(function(k){
+    var ev = cache.appelsEvt[k]; if(!ev || !ev.eleves) return;
+    Object.keys(ev.eleves).forEach(function(eid){
+      var st = ev.eleves[eid];
+      if(st && st.justifiee && (st.justificatifStatut||'en_attente')==='en_attente') n++;
+    });
+  });
+  return n;
+}
+function renderNotifs(){
+  var menu = document.getElementById('notifMenu'); if(!menu) return;
+  if(!viewer || !viewer.id){ menu.hidden = true; return; }
+  menu.hidden = false;
+  var items = notifsPourViewer();
+  var nbJustif = nbJustificatifsEnAttente();
+  var lastSeen = ui.notifLastSeen || '';
+  var nbNonLues = items.filter(function(h){ return h.date > lastSeen; }).length + (nbJustif ? 1 : 0);
+  var badge = document.getElementById('notifBadge');
+  if(badge){
+    if(nbNonLues>0){ badge.hidden=false; badge.textContent = nbNonLues>9 ? '9+' : String(nbNonLues); }
+    else badge.hidden = true;
+  }
+  var list = document.getElementById('notifDropdownList'); if(!list) return;
+  var html = '';
+  if(nbJustif>0){
+    html += '<div class="notif-item"><div class="notif-item-action">'+nbJustif+' justificatif(s) d\'absence en attente de validation</div><div class="notif-item-date">Onglet « Historique absences »</div></div>';
+  }
+  html += items.map(function(h){
+    return '<div class="notif-item"><div class="notif-item-action">'+esc(h.action)+(h.details?' — '+esc(h.details):'')+'</div><div class="notif-item-date">'+fmtDateHeure(h.date)+' · '+esc(h.auteurNom||'')+'</div></div>';
+  }).join('');
+  list.innerHTML = html || '<div class="notif-empty">Aucune notification pour le moment.</div>';
+}
+function closeNotifMenu(){
+  var dd = document.getElementById('notifDropdown'); if(dd) dd.hidden = true;
+  var bell = document.getElementById('notifBell'); if(bell) bell.setAttribute('aria-expanded','false');
+}
+function toggleNotifMenu(){
+  var dd = document.getElementById('notifDropdown'); if(!dd) return;
+  var willOpen = dd.hidden;
+  closeAccountMenu(); closeNotifMenu();
+  if(willOpen){
+    dd.hidden = false;
+    var bell = document.getElementById('notifBell'); if(bell) bell.setAttribute('aria-expanded','true');
+    ui.notifLastSeen = new Date().toISOString(); saveUi(); renderNotifs();
+  }
 }
 
 function closeAccountMenu(){
@@ -1349,13 +1503,14 @@ function closePwdModal(){
 }
 document.addEventListener('click', function(e){
   var dd = document.getElementById('accountDropdown');
-  if(!dd || dd.hidden) return;
-  if(e.target.closest('#accountDropdown') || e.target.closest('#meChip')) return;
-  closeAccountMenu();
+  if(dd && !dd.hidden && !e.target.closest('#accountDropdown') && !e.target.closest('#meChip')) closeAccountMenu();
+  var nd = document.getElementById('notifDropdown');
+  if(nd && !nd.hidden && !e.target.closest('#notifDropdown') && !e.target.closest('#notifBell')) closeNotifMenu();
 });
 document.addEventListener('keydown', function(e){
   if(e.key !== 'Escape') return;
   closeAccountMenu();
+  closeNotifMenu();
   closePwdModal();
 });
 
@@ -1365,8 +1520,16 @@ function renderShell(){
   var ts = document.getElementById('termSwitch');
   ts.querySelectorAll('button').forEach(function(b){ var t = parseInt(b.dataset.term,10); b.setAttribute('aria-pressed', t===ui.trimestre ? "true":"false"); });
   var tabsEl = document.getElementById('tabs');
-  var visibleTabs = TABS.filter(function(t){ return !t.adminOnly || canManageUsers(); });
+  var visibleTabs = TABS.filter(function(t){
+    if(t.adminOnly && !canManageUsers()) return false;
+    if(t.hideFor && viewerProfile && t.hideFor.indexOf(viewerProfile.role) !== -1) return false;
+    return true;
+  });
   if(ui.tab==='utilisateurs' && !canManageUsers()) ui.tab='etablissement';
+  if(ui.tab==='journal' && !canManageUsers()) ui.tab='etablissement';
+  if(ui.tab==='archives' && !canManageUsers()) ui.tab='etablissement';
+  if(ui.tab==='passage' && !canManageUsers()) ui.tab='etablissement';
+  if(!visibleTabs.some(function(t){return t.id===ui.tab;})) ui.tab='etablissement';
   tabsEl.innerHTML = visibleTabs.map(function(t){
     return '<button type="button" class="tab-btn" data-tab="'+t.id+'" aria-current="'+(ui.tab===t.id?'true':'false')+'">'+ICONS[t.id]+'<span>'+t.label+'</span></button>';
   }).join('');
@@ -1385,18 +1548,21 @@ function renderContent(){
   switch(ui.tab){
     case 'etablissement': el.innerHTML = readOnlyBanner() + viewEtablissement(); break;
     case 'annees': el.innerHTML = readOnlyBanner() + viewAnneesScolaires(); break;
+    case 'archives': el.innerHTML = canManageUsers() ? viewArchivesEleves() : ''; break;
+    case 'passage': el.innerHTML = canManageUsers() ? viewPassageClasse() : ''; break;
     case 'classes': el.innerHTML = readOnlyBanner() + viewClasses(); break;
     case 'eleves': el.innerHTML = readOnlyBanner() + viewEleves(); break;
-    case 'matieres': el.innerHTML = readOnlyBanner() + viewMatieres(); break;
-    case 'notes': el.innerHTML = readOnlyBanner() + viewNotes(); break;
-    case 'appels': el.innerHTML = readOnlyBanner() + viewAppels(); break;
-    case 'historique': el.innerHTML = readOnlyBanner() + viewHistoriqueAbsences(); break;
+    case 'matieres': el.innerHTML = !isSurveillant() ? (readOnlyBanner() + viewMatieres()) : ''; break;
+    case 'notes': el.innerHTML = (!isSecretaire() && !isSurveillant()) ? (readOnlyBanner() + viewNotes()) : ''; break;
+    case 'appels': el.innerHTML = !isSecretaire() ? (readOnlyBanner() + viewAppels()) : ''; break;
+    case 'historique': el.innerHTML = !isSecretaire() ? (readOnlyBanner() + viewHistoriqueAbsences()) : ''; break;
     case 'bulletins': el.innerHTML = readOnlyBanner() + viewBulletins(); break;
     case 'utilisateurs': el.innerHTML = canManageUsers() ? viewUtilisateurs() : ''; break;
+    case 'journal': el.innerHTML = canManageUsers() ? viewJournalActivite() : ''; break;
     default: el.innerHTML = "";
   }
 }
-function render(){ renderShell(); renderContent(); }
+function render(){ renderShell(); renderContent(); renderNotifs(); }
 
 /* ================= view: établissement ================= */
 function viewEtablissement(){
@@ -1466,7 +1632,7 @@ function field(type, path, label, value, placeholder, dis){
 
 /* ================= view: classes ================= */
 function viewClasses(){
-  var dis = writeGuardOk() ? '' : ' disabled';
+  var dis = (writeGuardOkDonnees() && canEditClasses()) ? '' : ' disabled';
   var effectifs = [];
   var rows = clasesTriees().map(function(c){
     var eff = elevesDe(c.id).length;
@@ -1513,16 +1679,23 @@ function viewAnneesScolaires(){
   var annees = (cache.anneesScolaires||[]).slice().sort(function(a,b){ return (a.libelle||'').localeCompare(b.libelle||'','fr'); });
   var rows = annees.map(function(a){
     var active = a.id===cache.anneeActive;
+    var disRow = (writeGuardOk() && !a.cloturee) ? '' : ' disabled';
+    var statutCell = a.cloturee
+      ? '<span class="pill pill-muted" title="'+esc('Clôturée par '+(a.clotureePar||'—')+(a.clotureeLe?(' le '+fmtDateHeure(a.clotureeLe)):''))+'">Clôturée</span>'
+      + (isAdmin() ? ' <button type="button" class="btn btn-sm btn-ghost" data-action="reouvrir-annee" data-annee="'+a.id+'"'+dis+'>Rouvrir</button>' : '')
+      : '<span class="pill pill-good">Ouverte</span>'
+      + (canManageUsers() ? ' <button type="button" class="btn btn-sm btn-ghost" data-action="cloturer-annee" data-annee="'+a.id+'"'+dis+'>Clôturer</button>' : '');
     return '<tr'+(active?' class="row-active"':'')+'>'
-      + '<td><input type="text" data-annee="'+a.id+'" data-field="libelle" value="'+esc(a.libelle)+'" style="min-width:110px"'+dis+'></td>'
-      + '<td><input type="date" data-annee="'+a.id+'" data-field="dateDebut" value="'+esc(a.dateDebut)+'"'+dis+'></td>'
-      + '<td><input type="date" data-annee="'+a.id+'" data-field="dateFin" value="'+esc(a.dateFin)+'"'+dis+'></td>'
-      + '<td><input type="date" data-annee="'+a.id+'" data-field="t1Debut" value="'+esc(a.t1Debut)+'"'+dis+'></td>'
-      + '<td><input type="date" data-annee="'+a.id+'" data-field="t1Fin" value="'+esc(a.t1Fin)+'"'+dis+'></td>'
-      + '<td><input type="date" data-annee="'+a.id+'" data-field="t2Debut" value="'+esc(a.t2Debut)+'"'+dis+'></td>'
-      + '<td><input type="date" data-annee="'+a.id+'" data-field="t2Fin" value="'+esc(a.t2Fin)+'"'+dis+'></td>'
-      + '<td><input type="date" data-annee="'+a.id+'" data-field="t3Debut" value="'+esc(a.t3Debut)+'"'+dis+'></td>'
-      + '<td><input type="date" data-annee="'+a.id+'" data-field="t3Fin" value="'+esc(a.t3Fin)+'"'+dis+'></td>'
+      + '<td><input type="text" data-annee="'+a.id+'" data-field="libelle" value="'+esc(a.libelle)+'" style="min-width:110px"'+disRow+'></td>'
+      + '<td><input type="date" data-annee="'+a.id+'" data-field="dateDebut" value="'+esc(a.dateDebut)+'"'+disRow+'></td>'
+      + '<td><input type="date" data-annee="'+a.id+'" data-field="dateFin" value="'+esc(a.dateFin)+'"'+disRow+'></td>'
+      + '<td><input type="date" data-annee="'+a.id+'" data-field="t1Debut" value="'+esc(a.t1Debut)+'"'+disRow+'></td>'
+      + '<td><input type="date" data-annee="'+a.id+'" data-field="t1Fin" value="'+esc(a.t1Fin)+'"'+disRow+'></td>'
+      + '<td><input type="date" data-annee="'+a.id+'" data-field="t2Debut" value="'+esc(a.t2Debut)+'"'+disRow+'></td>'
+      + '<td><input type="date" data-annee="'+a.id+'" data-field="t2Fin" value="'+esc(a.t2Fin)+'"'+disRow+'></td>'
+      + '<td><input type="date" data-annee="'+a.id+'" data-field="t3Debut" value="'+esc(a.t3Debut)+'"'+disRow+'></td>'
+      + '<td><input type="date" data-annee="'+a.id+'" data-field="t3Fin" value="'+esc(a.t3Fin)+'"'+disRow+'></td>'
+      + '<td>'+statutCell+'</td>'
       + '<td>'+(active
           ? '<span class="pill pill-good">Active</span>'
           : '<button type="button" class="btn btn-sm" data-action="activer-annee" data-annee="'+a.id+'"'+dis+'>Activer</button>')
@@ -1542,13 +1715,105 @@ function viewAnneesScolaires(){
   + '<div class="panel">'
     + '<h2>Années <span class="count">'+annees.length+'</span></h2>'
     + (annees.length
-      ? '<div class="table-wrap"><table><thead><tr><th>Libellé</th><th>Début année</th><th>Fin année</th><th>Trim.1 début</th><th>Trim.1 fin</th><th>Trim.2 début</th><th>Trim.2 fin</th><th>Trim.3 début</th><th>Trim.3 fin</th><th></th></tr></thead><tbody>'+rows+'</tbody></table></div>'
+      ? '<div class="table-wrap"><table><thead><tr><th>Libellé</th><th>Début année</th><th>Fin année</th><th>Trim.1 début</th><th>Trim.1 fin</th><th>Trim.2 début</th><th>Trim.2 fin</th><th>Trim.3 début</th><th>Trim.3 fin</th><th>Statut</th><th></th></tr></thead><tbody>'+rows+'</tbody></table></div>'
       : '<div class="empty">Aucune année pour l\'instant.</div>')
   + '</div>';
 }
 
+/* ================= view: archives élèves ================= */
+function viewArchivesEleves(){
+  var q = ui.archiveQuery || '';
+  var resultats = rechercherEleveToutesAnnees(q);
+  var rows = resultats.map(function(r){
+    var active = r.anneeId === cache.anneeActive;
+    return '<tr>'
+      + '<td>'+esc(r.eleve.nom)+'</td>'
+      + '<td>'+esc(r.eleve.prenom)+'</td>'
+      + '<td>'+esc(r.eleve.matricule)+'</td>'
+      + '<td>'+esc(r.classe.nom||'—')+'</td>'
+      + '<td>'+esc(r.anneeLib)+(active?' <span class="pill pill-good">active</span>':'')+'</td>'
+      + '<td><button type="button" class="btn btn-sm" data-action="consulter-archive" data-eleve="'+r.eleve.id+'" data-classe="'+r.classe.id+'" data-annee="'+(r.anneeId||'')+'">Consulter le bulletin</button></td>'
+    + '</tr>';
+  }).join('');
+
+  return ''
+  + '<div class="view-head"><div><h1>Archives élèves</h1><p>Retrouvez un élève par son nom ou son matricule, même dans une année scolaire passée. « Consulter » bascule temporairement sur l\'année de cet élève pour afficher son bulletin.</p></div></div>'
+  + '<div class="panel">'
+    + '<div class="field"><label>Rechercher (nom, prénom ou matricule)</label><input type="text" id="archiveSearch" placeholder="ex. Hassan, ou EL-1234" value="'+esc(q)+'"></div>'
+  + '</div>'
+  + (q
+    ? '<div class="panel">'
+      + '<h2>Résultats <span class="count">'+resultats.length+'</span></h2>'
+      + (resultats.length
+        ? '<div class="table-wrap"><table><thead><tr><th>Nom</th><th>Prénom</th><th>Matricule</th><th>Classe</th><th>Année</th><th></th></tr></thead><tbody>'+rows+'</tbody></table></div>'
+        : '<div class="empty">Aucun élève trouvé pour « '+esc(q)+' ».</div>')
+    + '</div>'
+    : '');
+}
+
+/* ================= view: passage de classe ================= */
+function niveauSuivant(niveau){
+  var i = NIVEAUX.indexOf(niveau);
+  return (i>=0 && i<NIVEAUX.length-1) ? NIVEAUX[i+1] : niveau;
+}
+function classesAutresAnnees(){
+  return cache.classes.filter(function(c){ return c.anneeId && c.anneeId!==cache.anneeActive; })
+    .slice().sort(function(a,b){ return anneeLibelle(b.anneeId).localeCompare(anneeLibelle(a.anneeId)) || (a.nom||'').localeCompare(b.nom||'','fr'); });
+}
+function viewPassageClasse(){
+  var dis = writeGuardOkDonnees() ? '' : ' disabled';
+  var classesCible = clasesTriees();
+  var sourcesClasses = classesAutresAnnees();
+  var sourceId = ui.passageClasseSource || (sourcesClasses[0] && sourcesClasses[0].id) || '';
+  var sourceOpts = sourcesClasses.map(function(c){ return '<option value="'+c.id+'"'+(c.id===sourceId?' selected':'')+'>'+esc(c.nom)+' ('+esc(anneeLibelle(c.anneeId))+')</option>'; }).join('');
+  var cibleOpts = function(selected){ return classesCible.map(function(c){ return '<option value="'+c.id+'"'+(c.id===selected?' selected':'')+'>'+esc(c.nom)+'</option>'; }).join(''); };
+  var sourceClasse = cache.classes.find(function(c){return c.id===sourceId;});
+  var eleves = sourceId ? elevesDe(sourceId) : [];
+
+  var rows = eleves.map(function(e){
+    var st = passageState[e.id] || { statut:'admis', cible:'' };
+    if(!st.cible && sourceClasse && classesCible.length){
+      var niveauCible = st.statut==='redouble' ? sourceClasse.niveau : niveauSuivant(sourceClasse.niveau);
+      var match = classesCible.find(function(c){ return c.niveau===niveauCible; });
+      st.cible = match ? match.id : classesCible[0].id;
+    }
+    passageState[e.id] = st;
+    return '<tr>'
+      + '<td>'+esc(e.nom)+' '+esc(e.prenom)+'</td>'
+      + '<td>'+esc(e.matricule)+'</td>'
+      + '<td><select data-passage-statut="'+e.id+'"'+dis+'><option value="admis"'+(st.statut==='admis'?' selected':'')+'>Admis(e)</option><option value="redouble"'+(st.statut==='redouble'?' selected':'')+'>Redouble</option><option value="part"'+(st.statut==='part'?' selected':'')+'>Quitte l\'établissement</option></select></td>'
+      + '<td>'+(st.statut!=='part' ? ('<select data-passage-cible="'+e.id+'"'+dis+'>'+cibleOpts(st.cible)+'</select>') : '<span class="hint">—</span>')+'</td>'
+    + '</tr>';
+  }).join('');
+
+  var nbGarde = eleves.filter(function(e){ return (passageState[e.id]||{}).statut!=='part'; }).length;
+  var nbPart = eleves.length - nbGarde;
+
+  return ''
+  + '<div class="view-head"><div><h1>Passage de classe</h1><p>Préparez le passage des élèves d\'une ancienne classe vers l\'année active ('+esc(anneeLibelle(cache.anneeActive))+'). Chaque élève garde son matricule et son historique ; l\'ancienne classe et ses anciens bulletins restent intacts et consultables dans « Archives élèves ».</p></div></div>'
+  + (classesCible.length===0 ? '<div class="panel"><div class="empty">Créez d\'abord au moins une classe dans l\'année active (onglet « Classes ») pour pouvoir y transférer des élèves.</div></div>' : '')
+  + (sourcesClasses.length===0 ? '<div class="panel"><div class="empty">Aucune classe disponible dans une autre année pour l\'instant.</div></div>' : '')
+  + (sourcesClasses.length ? ''
+    + '<div class="panel">'
+      + '<div class="field"><label>Classe source (ancienne année)</label><select id="passageClasseSource">'+sourceOpts+'</select></div>'
+    + '</div>'
+    + '<div class="panel">'
+      + '<h2>Élèves de '+esc(sourceClasse?sourceClasse.nom:'')+' <span class="count">'+eleves.length+'</span></h2>'
+      + (eleves.length
+        ? '<div class="table-wrap"><table><thead><tr><th>Élève</th><th>Matricule</th><th>Statut</th><th>Nouvelle classe</th></tr></thead><tbody>'+rows+'</tbody></table></div>'
+          + '<div class="row" style="margin-top:14px"><button type="button" class="btn btn-primary" data-action="valider-passage" data-classe="'+sourceId+'"'+dis+'>Valider le passage ('+nbGarde+' à réinscrire'+(nbPart?', '+nbPart+' quitte(nt) l\'établissement':'')+')</button></div>'
+        : '<div class="empty">Aucun élève dans cette classe.</div>')
+    + '</div>'
+    : '');
+}
+
 function rowDelete(kind, id){
-  var dis = writeGuardOk() ? '' : ' disabled';
+  var canKind = (kind==='classe') ? canEditClasses()
+    : (kind==='eleve' || kind==='elevesClasse') ? canEditEleves()
+    : (kind==='matiere') ? canEditMatieres()
+    : (kind==='appelsEvt') ? canEditAppels()
+    : true;
+  var dis = (writeGuardOkDonnees() && canKind) ? '' : ' disabled';
   if(ui.deleteArmed === kind+':'+id){
     return '<div class="confirm-box"><span>Supprimer ?</span><button type="button" class="btn btn-sm btn-danger" data-action="delete-confirm" data-kind="'+kind+'" data-id="'+id+'"'+dis+'>Oui</button><button type="button" class="btn btn-sm btn-ghost" data-action="delete-cancel">Non</button></div>';
   }
@@ -1560,7 +1825,7 @@ function rowDelete(kind, id){
    matières. Même mécanisme de confirmation à deux temps (armer puis confirmer) que rowDelete,
    et même portée de suppression qu'un retrait d'élève un par un (uniquement la table élèves). */
 function rowViderClasse(classeId, eff){
-  var dis = writeGuardOk() ? '' : ' disabled';
+  var dis = (writeGuardOkDonnees() && canEditEleves()) ? '' : ' disabled';
   if(ui.deleteArmed === 'elevesClasse:'+classeId){
     return '<div class="confirm-box"><span>Supprimer les '+eff+' élève(s) ?</span><button type="button" class="btn btn-sm btn-danger" data-action="delete-confirm" data-kind="elevesClasse" data-id="'+classeId+'"'+dis+'>Oui</button><button type="button" class="btn btn-sm btn-ghost" data-action="delete-cancel">Non</button></div>';
   }
@@ -1965,7 +2230,7 @@ function renderImportVoeux(){
 }
 
 function viewEleves(){
-  var dis = writeGuardOk() ? '' : ' disabled';
+  var dis = (writeGuardOkDonnees() && canEditEleves()) ? '' : ' disabled';
   var classes = clasesTriees();
   var filtre = ui.classeFiltre || (classes[0] && classes[0].id) || "";
   var opts = classes.map(function(c){ return '<option value="'+c.id+'"'+(c.id===filtre?' selected':'')+'>'+esc(c.nom)+'</option>'; }).join('');
@@ -2028,7 +2293,7 @@ function viewEleves(){
 
 /* ================= view: matières ================= */
 function viewMatieres(){
-  var dis = writeGuardOk() ? '' : ' disabled';
+  var dis = (writeGuardOkDonnees() && canEditMatieres()) ? '' : ' disabled';
   var classes = clasesTriees();
   var filtre = ui.classeFiltre || (classes[0] && classes[0].id) || "";
   var opts = classes.map(function(c){ return '<option value="'+c.id+'"'+(c.id===filtre?' selected':'')+'>'+esc(c.nom)+'</option>'; }).join('');
@@ -2071,7 +2336,7 @@ function viewMatieres(){
 
 /* ================= view: notes ================= */
 function viewNotes(){
-  var dis = writeGuardOk() ? '' : ' disabled';
+  var dis = (writeGuardOkDonnees() && canEditNotes()) ? '' : ' disabled';
   var classes = clasesTriees();
   var classeId = ui.classeFiltre || (classes[0] && classes[0].id) || "";
   var classeOpts = classes.map(function(c){ return '<option value="'+c.id+'"'+(c.id===classeId?' selected':'')+'>'+esc(c.nom)+'</option>'; }).join('');
@@ -2208,7 +2473,7 @@ function imprimerListeNotes(classeId, matiereId){
 
 /* ================= view: liste d'appel ================= */
 function viewAppels(){
-  var dis=writeGuardOk()?'':' disabled';
+  var dis=(writeGuardOkDonnees() && canEditAppels())?'':' disabled';
   var classes=clasesTriees(), classeId=ui.classeFiltre||(classes[0]&&classes[0].id)||'';
   var opts=classes.map(function(c){return '<option value="'+c.id+'"'+(c.id===classeId?' selected':'')+'>'+esc(c.nom)+'</option>';}).join('');
   var mode = ui.appelMode || 'suivi';
@@ -2355,7 +2620,7 @@ function renderTableauBordAbsences(){
 /* Appel par matière — saisie manuelle de la matière et des horaires réels au moment de l'appel
    (jamais depuis un emploi du temps). Plusieurs appels possibles le même jour pour la même classe. */
 function renderAppelParMatiere(classeId, eleves){
-  var dis = writeGuardOk() ? '' : ' disabled';
+  var dis = (writeGuardOkDonnees() && canEditAppels()) ? '' : ' disabled';
   var date = ui.appelMatDate || todayISO();
   var vendrediMsg = isVendrediISO(date) ? '<div class="banner banner-warn"><span>Le vendredi n\'est pas un jour scolaire à Notaschool : choisissez une autre date avant d\'enregistrer cet appel.</span></div>' : '';
   var evtsDuJour = getAppelsEvtDeClasseDate(classeId, date);
@@ -2410,7 +2675,7 @@ function renderAppelParMatiere(classeId, eleves){
    créneaux Matin (1-5) et Après-midi (6-9), lignes Matières / Absents / Exclus / Émargement
    laissées vierges pour être remplies à la main. */
 function renderAppelRegistre(classeId, eleves){
-  var dis = writeGuardOk() ? '' : ' disabled';
+  var dis = (writeGuardOkDonnees() && canEditAppels()) ? '' : ' disabled';
   var classe = cache.classes.find(function(c){ return c.id===classeId; }) || {nom:"—", professeurPrincipal:""};
   var school = cache.school;
   var jour1 = ui.appelJour1 || ''; // laissé vide : la date est écrite à la main sur le registre imprimé
@@ -2668,7 +2933,7 @@ function viewBulletins(){
 }
 
 function renderSheet(e, classeId, tri){
-  var dis = writeGuardOk() ? '' : ' disabled';
+  var dis = (writeGuardOkDonnees() && canEditConseil()) ? '' : ' disabled';
   var classe = cache.classes.find(function(c){ return c.id===classeId; }) || {nom:"—", professeurPrincipal:""};
   var mats = matieresDe(classeId);
   var gen = statsGenerale(classeId, tri);
@@ -2839,6 +3104,36 @@ function viewUtilisateurs(){
   + '</div>';
 }
 
+/* ================= view: journal d'activité ================= */
+function fmtDateHeure(iso){
+  if(!iso) return '—';
+  var d = new Date(iso);
+  if(isNaN(d.getTime())) return '—';
+  var p = function(n){ return (n<10?'0':'')+n; };
+  return p(d.getDate())+'-'+p(d.getMonth()+1)+'-'+d.getFullYear()+' à '+p(d.getHours())+':'+p(d.getMinutes());
+}
+function viewJournalActivite(){
+  var entries = (cache.historique||[]).slice().sort(function(a,b){ return (b.date||'').localeCompare(a.date||''); });
+  var rows = entries.slice(0,300).map(function(h){
+    return '<tr>'
+      + '<td class="tabnum" style="white-space:nowrap">'+esc(fmtDateHeure(h.date))+'</td>'
+      + '<td>'+esc(h.auteurNom)+(h.auteurRole?' <span class="hint">('+esc(h.auteurRole)+')</span>':'')+'</td>'
+      + '<td>'+esc(h.action)+'</td>'
+      + '<td>'+esc(h.details)+'</td>'
+    + '</tr>';
+  }).join('');
+
+  return ''
+  + '<div class="view-head"><div><h1>Journal d\'activité</h1><p>Qui a créé, modifié ou supprimé quoi, et à quelle date. Cet historique est automatique et ne peut pas être modifié ou effacé.</p></div></div>'
+  + '<div class="panel">'
+    + '<h2>Dernières activités <span class="count">'+entries.length+'</span></h2>'
+    + (entries.length
+      ? '<div class="table-wrap"><table><thead><tr><th>Date</th><th>Auteur</th><th>Action</th><th>Détail</th></tr></thead><tbody>'+rows+'</tbody></table></div>'
+        + (entries.length>300 ? '<p class="hint" style="margin-top:10px">Seules les 300 activités les plus récentes sont affichées.</p>' : '')
+      : '<div class="empty">Aucune activité enregistrée pour l\'instant.</div>')
+  + '</div>';
+}
+
 /* ================= events ================= */
 function setPath(obj, path, value){ var parts = path.split('.'); var o = obj; for(var i=0;i<parts.length-1;i++){ o = o[parts[i]]; } o[parts[parts.length-1]] = value; }
 
@@ -2864,12 +3159,13 @@ document.addEventListener('click', function(e){
 
   var action = t.dataset.action;
   if(!action) return;
-  var UI_ONLY_ACTIONS = { 'copy-backup':1, 'toggle-account-menu':1, 'open-pwd-modal':1, 'close-pwd-modal':1, 'logout':1 };
+  var UI_ONLY_ACTIONS = { 'copy-backup':1, 'toggle-account-menu':1, 'toggle-notif-menu':1, 'open-pwd-modal':1, 'close-pwd-modal':1, 'logout':1 };
   if(!writeGuardOk() && !UI_ONLY_ACTIONS[action]) return;
 
   if(action === 'logout'){ supabase.auth.signOut(); return; }
   if(action === 'changer-mdp'){ changerMonMotDePasse(); return; }
   if(action === 'toggle-account-menu'){ toggleAccountMenu(); return; }
+  if(action === 'toggle-notif-menu'){ toggleNotifMenu(); return; }
   if(action === 'open-pwd-modal'){ openPwdModal(); return; }
   if(action === 'close-pwd-modal'){ closePwdModal(); return; }
   if(action === 'remove-logo'){ cache.school.logo=""; render(); dbSetDoc("config/ecole", cache.school); }
@@ -2881,10 +3177,11 @@ document.addEventListener('click', function(e){
     var libEl = document.getElementById('newAnneeLibelle');
     if(libEl && libEl.value.trim()){
       var aid = uid();
-      var objA = { libelle: libEl.value.trim(), dateDebut:'', dateFin:'', t1Debut:'', t1Fin:'', t2Debut:'', t2Fin:'', t3Debut:'', t3Fin:'' };
+      var objA = { libelle: libEl.value.trim(), dateDebut:'', dateFin:'', t1Debut:'', t1Fin:'', t2Debut:'', t2Fin:'', t3Debut:'', t3Fin:'', cloturee:false, clotureePar:'', clotureeLe:'' };
       cache.anneesScolaires.push(Object.assign({id:aid}, objA));
       cache.anneeActive = aid; cache.school.anneeScolaire = objA.libelle;
       ui.classeFiltre=''; saveUi(); render();
+      logActivite('Création année scolaire', objA.libelle);
       persistPayload();
     }
   }
@@ -2894,20 +3191,77 @@ document.addEventListener('click', function(e){
     if(a2){
       cache.anneeActive = aid2; cache.school.anneeScolaire = a2.libelle;
       ui.classeFiltre=''; saveUi(); render();
+      logActivite('Changement d\'année active', a2.libelle);
+      persistPayload();
+    }
+  }
+  else if(action === 'cloturer-annee'){
+    if(!canManageUsers()) return;
+    var aid3 = t.dataset.annee;
+    var a3 = cache.anneesScolaires.find(function(x){return x.id===aid3;});
+    if(a3 && !a3.cloturee){
+      if(!confirm('Clôturer l\'année « '+a3.libelle+' » ?\n\nAprès clôture, les notes, absences, classes, élèves et matières de cette année ne pourront plus être modifiés. Cette action peut être annulée par une personne autorisée.')) return;
+      a3.cloturee = true; a3.clotureePar = (viewerProfile && (viewerProfile.full_name||viewerProfile.identifiant)) || 'Système'; a3.clotureeLe = new Date().toISOString();
+      dbUpdate("anneesScolaires", a3.id, {cloturee:true, clotureePar:a3.clotureePar, clotureeLe:a3.clotureeLe});
+      logActivite('Clôture année scolaire', a3.libelle);
+      render();
+    }
+  }
+  else if(action === 'reouvrir-annee'){
+    if(!isAdmin()) return;
+    var aid4 = t.dataset.annee;
+    var a4 = cache.anneesScolaires.find(function(x){return x.id===aid4;});
+    if(a4 && a4.cloturee){
+      if(!confirm('Rouvrir l\'année « '+a4.libelle+' » ? Cette action exceptionnelle rendra à nouveau les données de cette année modifiables.')) return;
+      a4.cloturee = false; a4.clotureePar = ''; a4.clotureeLe = '';
+      dbUpdate("anneesScolaires", a4.id, {cloturee:false, clotureePar:'', clotureeLe:''});
+      logActivite('Réouverture année scolaire', a4.libelle);
+      render();
+    }
+  }
+  else if(action === 'valider-passage'){
+    if(!writeGuardOkDonnees()) return;
+    var classeSrc = t.dataset.classe;
+    var elevesSrc = elevesDe(classeSrc);
+    var aReinscrire = elevesSrc.filter(function(e){ var st=passageState[e.id]; return st && st.statut!=='part' && st.cible; });
+    var nbPartants = elevesSrc.length - aReinscrire.length;
+    if(!aReinscrire.length){ alert('Aucun élève à réinscrire (tous marqués « Quitte l\'établissement », ou aucune classe n\'a pu être proposée).'); return; }
+    if(!confirm('Confirmer le passage de '+aReinscrire.length+' élève(s) vers l\'année active'+(nbPartants?' ('+nbPartants+' ne seront pas réinscrit(s))':'')+' ?\n\nCeci crée de nouvelles fiches élèves dans la nouvelle classe, sans toucher aux anciennes données.')) return;
+    aReinscrire.forEach(function(e){
+      var nid = uid();
+      var copie = { classeId: passageState[e.id].cible, nom:e.nom, prenom:e.prenom, sexe:e.sexe||'', dateNaissance:e.dateNaissance||'', matricule:e.matricule||'', photo:e.photo||'', lieuNaissance:e.lieuNaissance||'', nationalite:e.nationalite||'' };
+      cache.eleves.push(Object.assign({id:nid}, copie));
+      dbSet("eleves", nid, copie);
+    });
+    logActivite('Passage de classe', aReinscrire.length+' élève(s) de '+(cache.classes.find(function(c){return c.id===classeSrc;})||{}).nom+' vers l\'année active');
+    passageState = {}; render();
+    alert(aReinscrire.length+' élève(s) réinscrit(s) avec succès.');
+  }
+  else if(action === 'consulter-archive'){
+    var anneeC = t.dataset.annee, classeC = t.dataset.classe, eleveC = t.dataset.eleve;
+    var anneeObjC = cache.anneesScolaires.find(function(x){return x.id===anneeC;});
+    if(anneeObjC){
+      cache.anneeActive = anneeC; cache.school.anneeScolaire = anneeObjC.libelle;
+      ui.tab = 'bulletins'; ui.classeFiltre = classeC; ui.bulletinMode = 'un'; ui.bulletinEleve = eleveC;
+      saveUi(); render();
+      logActivite('Consultation archive élève', anneeObjC.libelle);
       persistPayload();
     }
   }
   else if(action === 'add-classe'){
+    if(!writeGuardOkDonnees() || !canEditClasses()) return;
     var nomEl = document.getElementById('newClasseNom'), profEl = document.getElementById('newClasseProf'), nivEl = document.getElementById('newClasseNiveau');
     if(nomEl.value.trim()){
       var id = uid();
       var obj = { nom:nomEl.value.trim(), professeurPrincipal:profEl.value.trim(), niveau: nivEl?nivEl.value:'', anneeId: cache.anneeActive };
       cache.classes.push(Object.assign({id:id}, obj));
       ui.classeFiltre = id; saveUi(); render();
+      logActivite('Création classe', obj.nom);
       dbSet("classes", id, obj);
     }
   }
   else if(action === 'add-eleve'){
+    if(!writeGuardOkDonnees() || !canEditEleves()) return;
     var nEl=document.getElementById('newEleveNom'), pEl=document.getElementById('newElevePrenom'),
         cEl=document.getElementById('newEleveClasse'), dEl=document.getElementById('newEleveDate'),
         sxEl=document.getElementById('newEleveSexe'), mEl=document.getElementById('newEleveMatricule'),
@@ -2917,16 +3271,19 @@ document.addEventListener('click', function(e){
       var obj = { classeId:cEl.value, nom:nEl.value.trim(), prenom:(pEl.value||'').trim(), sexe:sxEl?sxEl.value:'', dateNaissance:dEl.value||'', matricule:(mEl.value||'').trim() || ('EL-'+Math.floor(1000+Math.random()*9000)), photo:'', lieuNaissance:(lnEl&&lnEl.value||'').trim(), nationalite:(natEl&&natEl.value||'').trim() };
       cache.eleves.push(Object.assign({id:eid}, obj));
       render();
+      logActivite('Création élève', (obj.nom+' '+obj.prenom).trim());
       dbSet("eleves", eid, obj);
     }
   }
   else if(action === 'add-matiere'){
+    if(!writeGuardOkDonnees() || !canEditMatieres()) return;
     var cmEl=document.getElementById('newMatiereClasse'), nmEl=document.getElementById('newMatiereNom'), emEl=document.getElementById('newMatiereEns');
     if(cmEl.value && nmEl.value.trim()){
       var mid = uid();
       var obj = { classeId:cmEl.value, nom:nmEl.value.trim(), enseignant:(emEl.value||'').trim() };
       cache.matieres.push(Object.assign({id:mid}, obj));
       render();
+      logActivite('Création matière', obj.nom);
       dbSet("matieres", mid, obj);
     }
   }
@@ -2934,7 +3291,15 @@ document.addEventListener('click', function(e){
   else if(action === 'delete-cancel'){ ui.deleteArmed = ''; render(); }
   else if(action === 'delete-confirm'){
     var kind=t.dataset.kind, id=t.dataset.id;
+    var canKindDel = (kind==='classe') ? canEditClasses()
+      : (kind==='eleve' || kind==='elevesClasse') ? canEditEleves()
+      : (kind==='matiere') ? canEditMatieres()
+      : (kind==='appelsEvt') ? canEditAppels()
+      : true;
+    if(!canKindDel) return;
+    if(kind!=='appelsEvt' && !writeGuardOkDonnees()) return;
     if(kind==='classe'){
+      var classeSupprimee = cache.classes.find(function(c){return c.id===id;});
       var orphanEleves = cache.eleves.filter(function(e){return e.classeId===id;});
       var orphanMats = cache.matieres.filter(function(m){return m.classeId===id;});
       cache.classes = cache.classes.filter(function(c){return c.id!==id;});
@@ -2942,21 +3307,28 @@ document.addEventListener('click', function(e){
       cache.matieres = cache.matieres.filter(function(m){return m.classeId!==id;});
       if(ui.classeFiltre===id) ui.classeFiltre = '';
       ui.deleteArmed = ''; saveUi(); render();
+      logActivite('Suppression classe', (classeSupprimee&&classeSupprimee.nom)||id);
       dbDelete("classes", id);
       orphanEleves.forEach(function(e){ dbDelete("eleves", e.id); });
       orphanMats.forEach(function(m){ dbDelete("matieres", m.id); });
     } else if(kind==='eleve'){
+      var eleveSupprime = cache.eleves.find(function(e){return e.id===id;});
       cache.eleves = cache.eleves.filter(function(e){return e.id!==id;});
       ui.deleteArmed=''; render();
+      logActivite('Suppression élève', eleveSupprime?((eleveSupprime.nom||'')+' '+(eleveSupprime.prenom||'')).trim():id);
       dbDelete("eleves", id);
     } else if(kind==='elevesClasse'){
+      var classeVidee = cache.classes.find(function(c){return c.id===id;});
       var elevesAVider = cache.eleves.filter(function(e){return e.classeId===id;});
       cache.eleves = cache.eleves.filter(function(e){return e.classeId!==id;});
       ui.deleteArmed=''; render();
+      logActivite('Classe vidée', ((classeVidee&&classeVidee.nom)||id)+' ('+elevesAVider.length+' élève(s))');
       elevesAVider.forEach(function(e){ dbDelete("eleves", e.id); });
     } else if(kind==='matiere'){
+      var matiereSupprimee = cache.matieres.find(function(m){return m.id===id;});
       cache.matieres = cache.matieres.filter(function(m){return m.id!==id;});
       ui.deleteArmed=''; render();
+      logActivite('Suppression matière', (matiereSupprimee&&matiereSupprimee.nom)||id);
       dbDelete("matieres", id);
     } else if(kind==='appelsEvt'){
       ui.deleteArmed=''; deleteAppelEvt(id); render();
@@ -2975,6 +3347,7 @@ document.addEventListener('click', function(e){
         hintEl.textContent='Compte « '+identifiant+' » créé.';
         idEl.value=''; pwEl.value=''; nEl2.value='';
         loadProfiles();
+        logActivite('Création compte', identifiant+' ('+(ROLES_LABELS[role]||role)+')'); persistPayload();
       })
       .catch(function(err){ hintEl.textContent='Erreur : '+(err.message||err); })
       .finally(function(){ btn.disabled=false; });
@@ -2986,7 +3359,7 @@ document.addEventListener('click', function(e){
     if(!nouveau) return;
     if(nouveau.length<6){ alert('Le mot de passe doit contenir au moins 6 caractères.'); return; }
     callAdminApi('/api/admin-update-user', {userId:uidTarget, password:nouveau})
-      .then(function(){ alert('Mot de passe réinitialisé pour « '+identifiantTarget+' ».'); })
+      .then(function(){ alert('Mot de passe réinitialisé pour « '+identifiantTarget+' ».'); logActivite('Réinitialisation mot de passe', identifiantTarget); persistPayload(); })
       .catch(function(err){ alert('Erreur : '+(err.message||err)); });
   }
   else if(action === 'toggle-actif'){
@@ -2994,8 +3367,9 @@ document.addEventListener('click', function(e){
     var uidTarget2=t.dataset.id, actifActuel=t.dataset.actif==='1';
     var confirmMsg = actifActuel ? 'Désactiver ce compte ? La personne ne pourra plus se connecter.' : 'Réactiver ce compte ?';
     if(!confirm(confirmMsg)) return;
+    var profilCible = cache.profiles.find(function(p){return p.id===uidTarget2;});
     callAdminApi('/api/admin-update-user', {userId:uidTarget2, actif: !actifActuel})
-      .then(function(){ loadProfiles(); })
+      .then(function(){ loadProfiles(); logActivite(actifActuel?'Désactivation compte':'Réactivation compte', (profilCible&&profilCible.identifiant)||uidTarget2); persistPayload(); })
       .catch(function(err){ alert('Erreur : '+(err.message||err)); });
   }
   else if(action === 'appel-tout-present'){
@@ -3054,7 +3428,7 @@ document.addEventListener('click', function(e){
     telechargerModeleEleves(clasesTriees());
   }
   else if(action === 'eleves-import-confirmer'){
-    if(!writeGuardOk() || (!isAdmin() && !isDirecteur())) return;
+    if(!writeGuardOkDonnees() || (!isAdmin() && !isDirecteur())) return;
     confirmerImportEleves();
   }
   else if(action === 'eleves-import-annuler'){
@@ -3068,7 +3442,7 @@ document.addEventListener('click', function(e){
     telechargerModeleOrientation();
   }
   else if(action === 'orientation-import-confirmer'){
-    if(!writeGuardOk() || (!isAdmin() && !isDirecteur())) return;
+    if(!writeGuardOkDonnees() || (!isAdmin() && !isDirecteur())) return;
     confirmerImportOrientation();
   }
   else if(action === 'orientation-import-annuler'){
@@ -3080,7 +3454,7 @@ document.addEventListener('click', function(e){
     telechargerModeleVoeux(selVoeux ? selVoeux.value : 'all');
   }
   else if(action === 'voeux-import-confirmer'){
-    if(!writeGuardOk() || (!isAdmin() && !isDirecteur())) return;
+    if(!writeGuardOkDonnees() || (!isAdmin() && !isDirecteur())) return;
     confirmerImportVoeux();
   }
   else if(action === 'voeux-import-annuler'){
@@ -3090,7 +3464,8 @@ document.addEventListener('click', function(e){
 
 document.addEventListener('change', function(e){
   var t = e.target;
-  if(!writeGuardOk() && (t.dataset.path || t.dataset.classe || t.dataset.annee || t.dataset.eleve || t.dataset.matiere || t.dataset.noteEleve || t.dataset.appelJour || t.dataset.conseilEleve || t.dataset.sheetDate || t.id==='logoInput' || t.hasAttribute('data-eleve-photo')
+  if(!writeGuardOk() && (t.dataset.annee || t.id==='logoInput' || t.dataset.path)) return;
+  if(!writeGuardOkDonnees() && (t.dataset.classe || t.dataset.eleve || t.dataset.matiere || t.dataset.noteEleve || t.dataset.appelJour || t.dataset.conseilEleve || t.dataset.sheetDate || t.dataset.passageStatut || t.dataset.passageCible || t.hasAttribute('data-eleve-photo')
     || t.dataset.appelStatut || t.dataset.appelPeriode || t.dataset.appelJustifiee || t.dataset.appelMotif || t.dataset.appelObservation || t.dataset.appelPiece || t.dataset.appelJustifStatut
     || t.dataset.parmatStatut || t.dataset.parmatJustifiee || t.dataset.parmatMotif || t.dataset.parmatObservation || t.dataset.parmatPiece || t.dataset.histEvtJustifStatut)) return;
 
@@ -3152,11 +3527,26 @@ document.addEventListener('change', function(e){
   if(t.id === 'absDashTrimestre'){ui.absDashTrimestre=t.value;saveUi();render();return;}
   if(t.id === 'absDashJustifiee'){ui.absDashJustifiee=t.value;saveUi();render();return;}
   if(t.id === 'filtreClasseEleves' || t.id==='filtreClasseMatieres' || t.id==='notesClasse' || t.id==='bulletinClasse'){ ui.classeFiltre = t.value; saveUi(); render(); return; }
+  if(t.id === 'archiveSearch'){ ui.archiveQuery = t.value; saveUi(); render(); return; }
+  if(t.id === 'passageClasseSource'){ ui.passageClasseSource = t.value; passageState = {}; saveUi(); render(); return; }
+  if(t.dataset.passageStatut){
+    var pe = t.dataset.passageStatut;
+    passageState[pe] = passageState[pe] || { statut:'admis', cible:'' };
+    passageState[pe].statut = t.value; passageState[pe].cible = '';
+    render(); return;
+  }
+  if(t.dataset.passageCible){
+    var pe2 = t.dataset.passageCible;
+    passageState[pe2] = passageState[pe2] || { statut:'admis', cible:'' };
+    passageState[pe2].cible = t.value;
+    render(); return;
+  }
   if(t.id === 'notesMatiere'){ ui.notesMatiere = t.value; saveUi(); render(); return; }
   if(t.id === 'bulletinMode'){ ui.bulletinMode = t.value; saveUi(); render(); return; }
   if(t.id === 'bulletinEleve'){ ui.bulletinEleve = t.value; saveUi(); render(); return; }
 
   if(t.dataset.classe){
+    if(!canEditClasses()) return;
     var c = cache.classes.find(function(x){return x.id===t.dataset.classe;});
     if(c){ var patch={}; patch[t.dataset.field]=t.value; c[t.dataset.field]=t.value; renderShell(); dbUpdate("classes", c.id, patch); }
     return;
@@ -3171,6 +3561,7 @@ document.addEventListener('change', function(e){
     return;
   }
   if(t.dataset.eleve){
+    if(!canEditEleves()) return;
     var el = cache.eleves.find(function(x){return x.id===t.dataset.eleve;});
     if(el){
       var patch2={}; patch2[t.dataset.field]=t.value; el[t.dataset.field]=t.value;
@@ -3180,6 +3571,7 @@ document.addEventListener('change', function(e){
     return;
   }
   if(t.dataset.matiere){
+    if(!canEditMatieres()) return;
     var m = cache.matieres.find(function(x){return x.id===t.dataset.matiere;});
     if(m){ var patch3={}; patch3[t.dataset.field]=t.value; m[t.dataset.field]=t.value; dbUpdate("matieres", m.id, patch3); }
     return;
@@ -3269,15 +3661,15 @@ document.addEventListener('change', function(e){
 
   /* ---- Historique détaillé des absences : filtres ---- */
   if(t.id === 'eleveImportInput'){
-    if(writeGuardOk() && (isAdmin()||isDirecteur()) && t.files && t.files[0]){ analyserFichierEleves(t.files[0], clasesTriees()); }
+    if(writeGuardOkDonnees() && (isAdmin()||isDirecteur()) && t.files && t.files[0]){ analyserFichierEleves(t.files[0], clasesTriees()); }
     return;
   }
   if(t.id === 'orientationImportInput'){
-    if(writeGuardOk() && (isAdmin()||isDirecteur()) && t.files && t.files[0]){ analyserFichierOrientation(t.files[0]); }
+    if(writeGuardOkDonnees() && (isAdmin()||isDirecteur()) && t.files && t.files[0]){ analyserFichierOrientation(t.files[0]); }
     return;
   }
   if(t.id === 'voeuxImportInput'){
-    if(writeGuardOk() && (isAdmin()||isDirecteur()) && t.files && t.files[0]){ analyserFichierVoeux(t.files[0]); }
+    if(writeGuardOkDonnees() && (isAdmin()||isDirecteur()) && t.files && t.files[0]){ analyserFichierVoeux(t.files[0]); }
     return;
   }
   if(t.id === 'histRecherche'){ ui.histRecherche=t.value; saveUi(); render(); return; }
