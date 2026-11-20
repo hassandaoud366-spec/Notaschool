@@ -271,10 +271,14 @@ tr.row-absent{background:var(--warn-soft)}
 /* ---------- Access / loading gate (identite Notaschool, multi-etablissements) ---------- */
 #gate{
   --ns-navy:#0a1d42; --ns-navy2:#12295c; --ns-blue:#1a56c4; --ns-blue2:#2f7fe6; --ns-sky:#7cc9f2; --ns-ice:#eef5fd;
-  min-height:100%; min-height:100dvh; display:grid; grid-template-columns:1.1fr 1fr; position:relative;
+  min-height:100%; min-height:100dvh; display:block; position:relative;
 }
+/* Le panneau bleu de présentation (logo + texte + icônes) n'est plus affiché,
+   ni sur ordinateur ni sur mobile : seule la carte de connexion reste visible,
+   centrée sur un fond clair. (règles internes conservées mais sans effet,
+   display:none ci-dessous l'emporte toujours) */
 #gate .gate-show{
-  position:relative; display:flex; flex-direction:column; justify-content:center; overflow:hidden;
+  position:relative; display:none; flex-direction:column; justify-content:center; overflow:hidden;
   padding:56px 56px; color:#fff;
   background:var(--ns-navy);
   background-image:
