@@ -152,7 +152,14 @@ body::before{content:""; position:fixed; inset:0 0 auto; height:env(safe-area-in
 .term-switch button[aria-pressed="true"]{background:var(--surface); color:var(--accent); opacity:1; box-shadow:0 1px 4px rgba(13,26,46,.2)}
 .term-switch button:hover{opacity:1}
 
-.tabs{display:flex; gap:2px; overflow-x:auto; scrollbar-width:none; max-width:1180px; margin:0 auto; width:100%; padding-left:max(16px, env(safe-area-inset-left, 0px)); padding-right:max(16px, env(safe-area-inset-right, 0px)); padding-bottom:2px}
+.tabs-wrap{position:relative; max-width:1180px; margin:0 auto; width:100%}
+.tabs{display:flex; gap:2px; overflow-x:auto; scrollbar-width:thin; width:100%; padding-left:max(16px, env(safe-area-inset-left, 0px)); padding-right:max(16px, env(safe-area-inset-right, 0px)); padding-bottom:2px; scroll-behavior:smooth}
+.tabs::-webkit-scrollbar{height:5px}
+.tabs::-webkit-scrollbar-thumb{background:rgba(255,255,255,.3); border-radius:999px}
+.tabs-scroll-btn{position:absolute; top:0; bottom:2px; display:flex; align-items:center; justify-content:center; width:30px; border:none; cursor:pointer; color:var(--accent-ink); z-index:5}
+.tabs-scroll-left{left:0; background:linear-gradient(90deg, var(--accent-solid, #2a4f85) 45%, transparent)}
+.tabs-scroll-right{right:0; background:linear-gradient(270deg, var(--accent-solid, #2a4f85) 45%, transparent)}
+.tabs-scroll-btn:hover{opacity:.85}
 .tabs::-webkit-scrollbar{display:none}
 .tab-btn{flex:none; display:flex; align-items:center; gap:7px; border:none; background:transparent; color:var(--accent-ink); opacity:.72; padding:10px 13px; cursor:pointer; font-size:13px; font-weight:600; border-bottom:2px solid transparent; white-space:nowrap; border-radius:8px 8px 0 0; transition:opacity .15s, background-color .15s}
 .tab-btn svg{width:15px; height:15px; flex:none}
@@ -589,7 +596,11 @@ tr.row-absent{background:var(--warn-soft)}
           <button type="button" data-term="3">Trim. 3</button>
         </div>
       </div>
-      <nav class="tabs" id="tabs" aria-label="Sections"></nav>
+      <div class="tabs-wrap" id="tabsWrap">
+        <button type="button" class="tabs-scroll-btn tabs-scroll-left" id="tabsScrollLeft" aria-label="Sections précédentes" hidden><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="m15 18-6-6 6-6"/></svg></button>
+        <nav class="tabs" id="tabs" aria-label="Sections"></nav>
+        <button type="button" class="tabs-scroll-btn tabs-scroll-right" id="tabsScrollRight" aria-label="Sections suivantes" hidden><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"/></svg></button>
+      </div>
     </div>
     <main><div class="content-wrap" id="content"></div></main>
   </div>
@@ -1533,7 +1544,31 @@ function renderShell(){
   tabsEl.innerHTML = visibleTabs.map(function(t){
     return '<button type="button" class="tab-btn" data-tab="'+t.id+'" aria-current="'+(ui.tab===t.id?'true':'false')+'">'+ICONS[t.id]+'<span>'+t.label+'</span></button>';
   }).join('');
+  var activeBtn = tabsEl.querySelector('[aria-current="true"]');
+  if(activeBtn && typeof activeBtn.scrollIntoView==='function') activeBtn.scrollIntoView({block:'nearest', inline:'nearest'});
+  updateTabsScrollButtons();
 }
+
+/* Affordance de défilement de la barre d'onglets : avec beaucoup d'onglets (admin/directeur),
+   la barre déborde sur les écrans étroits. Sans ces flèches, rien n'indiquait qu'on pouvait
+   faire défiler vers la droite, et des onglets comme « Utilisateurs » restaient invisibles. */
+function updateTabsScrollButtons(){
+  var wrap = document.getElementById('tabsWrap'), tabsEl = document.getElementById('tabs');
+  var btnL = document.getElementById('tabsScrollLeft'), btnR = document.getElementById('tabsScrollRight');
+  if(!wrap || !tabsEl || !btnL || !btnR) return;
+  var canScroll = tabsEl.scrollWidth > tabsEl.clientWidth + 2;
+  if(!canScroll){ btnL.hidden = true; btnR.hidden = true; return; }
+  btnL.hidden = tabsEl.scrollLeft <= 2;
+  btnR.hidden = tabsEl.scrollLeft >= (tabsEl.scrollWidth - tabsEl.clientWidth - 2);
+}
+document.addEventListener('DOMContentLoaded', function(){
+  var tabsEl = document.getElementById('tabs');
+  var btnL = document.getElementById('tabsScrollLeft'), btnR = document.getElementById('tabsScrollRight');
+  if(tabsEl) tabsEl.addEventListener('scroll', updateTabsScrollButtons);
+  if(btnL) btnL.addEventListener('click', function(){ if(tabsEl) tabsEl.scrollBy({left:-220, behavior:'smooth'}); });
+  if(btnR) btnR.addEventListener('click', function(){ if(tabsEl) tabsEl.scrollBy({left:220, behavior:'smooth'}); });
+  window.addEventListener('resize', updateTabsScrollButtons);
+});
 
 function readOnlyBanner(){
   if(canWriteData === false || readOnlyForced){
