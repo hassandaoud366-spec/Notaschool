@@ -36,7 +36,7 @@ module.exports = async function handler(req, res) {
 
   const { data: callerProfile, error: callerProfileErr } = await adminClient
     .from('profiles')
-    .select('role, actif')
+    .select('role, actif, etablissement_id')
     .eq('id', callerData.user.id)
     .maybeSingle();
 
@@ -63,7 +63,7 @@ module.exports = async function handler(req, res) {
   if (callerProfile.role === 'directeur') {
     const { data: tp, error: tpErr } = await adminClient
       .from('profiles')
-      .select('role')
+      .select('role, etablissement_id')
       .eq('id', userId)
       .maybeSingle();
     if (tpErr || !tp) {
@@ -73,6 +73,14 @@ module.exports = async function handler(req, res) {
     targetProfile = tp;
     if (!ROLES_DIRECTEUR_PEUT_GERER.includes(tp.role)) {
       res.status(403).json({ error: 'Un directeur ne peut gérer que les comptes Enseignant, Secrétaire ou Surveillant.' });
+      return;
+    }
+    // Un directeur ne peut gérer que les comptes de SON PROPRE établissement —
+    // revérifié ici, côté serveur (cette route utilise le service_role, qui
+    // contourne la sécurité RLS de la base : ce contrôle doit donc être fait
+    // explicitement dans ce code, pas seulement attendu de la base de données).
+    if (tp.etablissement_id !== callerProfile.etablissement_id) {
+      res.status(403).json({ error: 'Ce compte appartient à un autre établissement.' });
       return;
     }
   }
