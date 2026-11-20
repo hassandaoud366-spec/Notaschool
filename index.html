@@ -627,6 +627,7 @@ var importVoeux = null; // état transitoire de l'import du modèle Vœux 2nde :
 var cache = {
   school: { nom:"CEM-Lycée de Bouya", telephone:"", email:"", anneeScolaire:"" },
   classes: [], eleves: [], matieres: [],
+  anneesScolaires: [], anneeActive: '',
   notes: {},    // key eleveId_matiereId_trimestre -> {valeurs, appreciation, eleveId, matiereId, trimestre}
   conseil: {},  // key eleveId_trimestre -> {absences, appreciationGlobale, date, eleveId, trimestre}
   appels: {},   // key date_classe_eleve -> {date, classeId, eleveId, statut}  (ancien format, jour/demi-jour)
@@ -665,13 +666,28 @@ function revealShell(){
   if(canManageUsers()) loadProfiles();
 }
 function markAllLoaded(){ cache.loaded={school:true,classes:true,eleves:true,matieres:true,notes:true,conseil:true}; }
-function payloadFromCache(){ return {school:cache.school,classes:cache.classes,eleves:cache.eleves,matieres:cache.matieres,notes:cache.notes,conseil:cache.conseil,appels:cache.appels,appelsEvt:cache.appelsEvt}; }
+function payloadFromCache(){ return {school:cache.school,classes:cache.classes,eleves:cache.eleves,matieres:cache.matieres,notes:cache.notes,conseil:cache.conseil,appels:cache.appels,appelsEvt:cache.appelsEvt,anneesScolaires:cache.anneesScolaires,anneeActive:cache.anneeActive}; }
+function ensureAnneeScolaire(){
+  cache.anneesScolaires = cache.anneesScolaires || [];
+  if(!cache.anneesScolaires.length){
+    var lib = (cache.school && cache.school.anneeScolaire) || '2025-2026';
+    var id = 'an_' + lib.replace(/[^0-9A-Za-z]/g,'');
+    cache.anneesScolaires.push({ id:id, libelle:lib, dateDebut:'', dateFin:'', t1Debut:'', t1Fin:'', t2Debut:'', t2Fin:'', t3Debut:'', t3Fin:'' });
+    cache.anneeActive = id;
+  } else if(!cache.anneeActive || !cache.anneesScolaires.some(function(a){return a.id===cache.anneeActive;})){
+    cache.anneeActive = cache.anneesScolaires[0].id;
+  }
+  cache.classes.forEach(function(c){ if(!c.anneeId) c.anneeId = cache.anneeActive; });
+}
 function applyPayload(p){
   p=p||{}; cache.school=Object.assign({nom:'CEM-Lycée de Bouya',telephone:'',email:'',anneeScolaire:'',logo:''},p.school||{});
   cache.classes=Array.isArray(p.classes)?p.classes:[]; cache.eleves=Array.isArray(p.eleves)?p.eleves:[];
   cache.matieres=Array.isArray(p.matieres)?p.matieres:[]; cache.notes=p.notes&&typeof p.notes==='object'?p.notes:{};
   cache.conseil=p.conseil&&typeof p.conseil==='object'?p.conseil:{}; cache.appels=p.appels&&typeof p.appels==='object'?p.appels:{};
-  cache.appelsEvt=p.appelsEvt&&typeof p.appelsEvt==='object'?p.appelsEvt:{}; markAllLoaded();
+  cache.appelsEvt=p.appelsEvt&&typeof p.appelsEvt==='object'?p.appelsEvt:{};
+  cache.anneesScolaires=Array.isArray(p.anneesScolaires)?p.anneesScolaires:[]; cache.anneeActive=p.anneeActive||'';
+  ensureAnneeScolaire();
+  markAllLoaded();
 }
 async function loadSchoolData(){
 
@@ -984,10 +1000,12 @@ function dbDelete(path,id){
 function dbSetDoc(path,data){ if(path==='config/ecole') cache.school=data; return persistPayload(); }
 
 /* ================= domain helpers (read from cache) ================= */
-function clasesTriees(){ return cache.classes.slice().sort(function(a,b){ return (a.nom||'').localeCompare(b.nom||'','fr'); }); }
+function clasesTriees(){ return cache.classes.filter(function(c){ return !cache.anneeActive || c.anneeId===cache.anneeActive; }).slice().sort(function(a,b){ return (a.nom||'').localeCompare(b.nom||'','fr'); }); }
 function elevesDe(classeId){ return cache.eleves.filter(function(e){ return e.classeId===classeId; }).sort(function(a,b){ return ((a.nom||'')+(a.prenom||'')).localeCompare((b.nom||'')+(b.prenom||''),'fr'); }); }
 function matieresDe(classeId){ return cache.matieres.filter(function(m){ return m.classeId===classeId; }).sort(function(a,b){ return (a.nom||'').localeCompare(b.nom||'','fr'); }); }
-function classesDeNiveau(niveau){ return cache.classes.filter(function(c){ return c.niveau===niveau; }); }
+function classesDeNiveau(niveau){ return cache.classes.filter(function(c){ return c.niveau===niveau && (!cache.anneeActive || c.anneeId===cache.anneeActive); }); }
+function elevesAnneeActive(){ var ids={}; clasesTriees().forEach(function(c){ids[c.id]=true;}); return cache.eleves.filter(function(e){ return ids[e.classeId]; }); }
+function matieresAnneeActive(){ var ids={}; clasesTriees().forEach(function(c){ids[c.id]=true;}); return cache.matieres.filter(function(m){ return ids[m.classeId]; }); }
 function elevesDeNiveau(niveau){
   var ids = {}; classesDeNiveau(niveau).forEach(function(c){ ids[c.id]=true; });
   return cache.eleves.filter(function(e){ return ids[e.classeId]; });
@@ -1268,6 +1286,7 @@ function filePieceToDataUrl(file, cb){
 /* ================= icons / tabs ================= */
 var ICONS = {
   etablissement:'<svg viewBox="0 0 24 24" fill="none"><path d="M4 21V9l8-5 8 5v12" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/><path d="M9 21v-7h6v7" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></svg>',
+  annees:'<svg viewBox="0 0 24 24" fill="none"><rect x="3" y="5" width="18" height="16" rx="2" stroke="currentColor" stroke-width="1.6"/><path d="M3 10h18M8 3v4M16 3v4" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>',
   classes:'<svg viewBox="0 0 24 24" fill="none"><rect x="3" y="4" width="18" height="13" rx="2" stroke="currentColor" stroke-width="1.6"/><path d="M8 21h8M12 17v4" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>',
   eleves:'<svg viewBox="0 0 24 24" fill="none"><circle cx="9" cy="8" r="3" stroke="currentColor" stroke-width="1.6"/><path d="M3.5 20c.8-3.2 3-5 5.5-5s4.7 1.8 5.5 5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/><circle cx="17.5" cy="9" r="2.3" stroke="currentColor" stroke-width="1.6"/><path d="M15.2 20c.5-2.3 1.8-3.8 3.6-4.2" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>',
   matieres:'<svg viewBox="0 0 24 24" fill="none"><path d="M5 4h11a2 2 0 0 1 2 2v14H7a2 2 0 0 1-2-2V4Z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/><path d="M5 17a2 2 0 0 1 2-2h11" stroke="currentColor" stroke-width="1.6"/></svg>',
@@ -1279,6 +1298,7 @@ var ICONS = {
 };
 var TABS = [
   {id:"etablissement", label:"Établissement"},
+  {id:"annees", label:"Années scolaires"},
   {id:"classes", label:"Classes"},
   {id:"eleves", label:"Élèves"},
   {id:"matieres", label:"Matières"},
@@ -1364,6 +1384,7 @@ function renderContent(){
   var el = document.getElementById('content');
   switch(ui.tab){
     case 'etablissement': el.innerHTML = readOnlyBanner() + viewEtablissement(); break;
+    case 'annees': el.innerHTML = readOnlyBanner() + viewAnneesScolaires(); break;
     case 'classes': el.innerHTML = readOnlyBanner() + viewClasses(); break;
     case 'eleves': el.innerHTML = readOnlyBanner() + viewEleves(); break;
     case 'matieres': el.innerHTML = readOnlyBanner() + viewMatieres(); break;
@@ -1385,9 +1406,9 @@ function viewEtablissement(){
     : '<div class="logo-ph"><svg viewBox="0 0 24 24" width="24" height="24" fill="none"><path d="M4 21V9l8-5 8 5v12" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></svg></div>';
   var dis = writeGuardOk() ? '' : ' disabled';
 
-  var nbEleves = (cache.eleves||[]).length;
-  var nbClasses = (cache.classes||[]).length;
-  var nbMatieres = (cache.matieres||[]).length;
+  var nbEleves = elevesAnneeActive().length;
+  var nbClasses = clasesTriees().length;
+  var nbMatieres = matieresAnneeActive().length;
   var nbComptes = canManageUsers() && cache.profiles ? cache.profiles.length : null;
 
   return ''
@@ -1465,7 +1486,7 @@ function viewClasses(){
   return ''
   + '<div class="view-head"><div><h1>Classes</h1><p>Chaque classe a un professeur principal ; son effectif se calcule automatiquement selon les élèves qui lui sont rattachés.</p></div></div>'
   + '<div class="stat-grid">'
-    + '<div class="stat-card"><div class="stat-icon">'+ICONS.classes+'</div><div class="stat-num tabnum">'+cache.classes.length+'</div><div class="stat-label">Classes</div></div>'
+    + '<div class="stat-card"><div class="stat-icon">'+ICONS.classes+'</div><div class="stat-num tabnum">'+clasesTriees().length+'</div><div class="stat-label">Classes</div></div>'
     + '<div class="stat-card"><div class="stat-icon gold">'+ICONS.eleves+'</div><div class="stat-num tabnum">'+totalEff+'</div><div class="stat-label">Élèves répartis</div></div>'
     + '<div class="stat-card"><div class="stat-icon good"><svg viewBox="0 0 24 24" fill="none"><path d="M3 17l5-5 4 4 8-9" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg></div><div class="stat-num tabnum">'+moyenne+'</div><div class="stat-label">Effectif moyen / classe</div></div>'
   + '</div>'
@@ -1479,10 +1500,50 @@ function viewClasses(){
     + '</div>'
   + '</div>'
   + '<div class="panel">'
-    + '<h2>Classes <span class="count">'+cache.classes.length+'</span></h2>'
-    + (cache.classes.length
+    + '<h2>Classes <span class="count">'+clasesTriees().length+'</span></h2>'
+    + (clasesTriees().length
       ? '<div class="table-wrap"><table><thead><tr><th>Nom</th><th>Niveau</th><th>Professeur principal</th><th>Effectif</th><th></th><th></th></tr></thead><tbody>'+rows+'</tbody></table></div>'
       : '<div class="empty">Aucune classe pour l\'instant. Ajoutez-en une ci-dessus.</div>')
+  + '</div>';
+}
+
+/* ================= view: années scolaires ================= */
+function viewAnneesScolaires(){
+  var dis = writeGuardOk() ? '' : ' disabled';
+  var annees = (cache.anneesScolaires||[]).slice().sort(function(a,b){ return (a.libelle||'').localeCompare(b.libelle||'','fr'); });
+  var rows = annees.map(function(a){
+    var active = a.id===cache.anneeActive;
+    return '<tr'+(active?' class="row-active"':'')+'>'
+      + '<td><input type="text" data-annee="'+a.id+'" data-field="libelle" value="'+esc(a.libelle)+'" style="min-width:110px"'+dis+'></td>'
+      + '<td><input type="date" data-annee="'+a.id+'" data-field="dateDebut" value="'+esc(a.dateDebut)+'"'+dis+'></td>'
+      + '<td><input type="date" data-annee="'+a.id+'" data-field="dateFin" value="'+esc(a.dateFin)+'"'+dis+'></td>'
+      + '<td><input type="date" data-annee="'+a.id+'" data-field="t1Debut" value="'+esc(a.t1Debut)+'"'+dis+'></td>'
+      + '<td><input type="date" data-annee="'+a.id+'" data-field="t1Fin" value="'+esc(a.t1Fin)+'"'+dis+'></td>'
+      + '<td><input type="date" data-annee="'+a.id+'" data-field="t2Debut" value="'+esc(a.t2Debut)+'"'+dis+'></td>'
+      + '<td><input type="date" data-annee="'+a.id+'" data-field="t2Fin" value="'+esc(a.t2Fin)+'"'+dis+'></td>'
+      + '<td><input type="date" data-annee="'+a.id+'" data-field="t3Debut" value="'+esc(a.t3Debut)+'"'+dis+'></td>'
+      + '<td><input type="date" data-annee="'+a.id+'" data-field="t3Fin" value="'+esc(a.t3Fin)+'"'+dis+'></td>'
+      + '<td>'+(active
+          ? '<span class="pill pill-good">Active</span>'
+          : '<button type="button" class="btn btn-sm" data-action="activer-annee" data-annee="'+a.id+'"'+dis+'>Activer</button>')
+        +'</td>'
+    + '</tr>';
+  }).join('');
+
+  return ''
+  + '<div class="view-head"><div><h1>Années scolaires</h1><p>Créez une nouvelle année pour commencer une rentrée sans toucher aux données des années précédentes. Les classes, élèves, notes et bulletins affichés dans toute l\'application dépendent toujours de l\'année active ci-dessous.</p></div></div>'
+  + '<div class="panel">'
+    + '<h2>Nouvelle année scolaire</h2>'
+    + '<div class="field-grid">'
+      + '<div class="field"><label>Libellé</label><input type="text" id="newAnneeLibelle" placeholder="ex. 2026-2027"'+dis+'></div>'
+    + '</div>'
+    + '<div class="row" style="margin-top:12px"><button type="button" class="btn btn-primary" data-action="add-annee"'+dis+'>Créer l\'année</button></div>'
+  + '</div>'
+  + '<div class="panel">'
+    + '<h2>Années <span class="count">'+annees.length+'</span></h2>'
+    + (annees.length
+      ? '<div class="table-wrap"><table><thead><tr><th>Libellé</th><th>Début année</th><th>Fin année</th><th>Trim.1 début</th><th>Trim.1 fin</th><th>Trim.2 début</th><th>Trim.2 fin</th><th>Trim.3 début</th><th>Trim.3 fin</th><th></th></tr></thead><tbody>'+rows+'</tbody></table></div>'
+      : '<div class="empty">Aucune année pour l\'instant.</div>')
   + '</div>';
 }
 
@@ -2816,11 +2877,31 @@ document.addEventListener('click', function(e){
     var box = document.getElementById('backupBox'); box.select();
     navigator.clipboard && navigator.clipboard.writeText(box.value).catch(function(){ try{ document.execCommand('copy'); }catch(err){} });
   }
+  else if(action === 'add-annee'){
+    var libEl = document.getElementById('newAnneeLibelle');
+    if(libEl && libEl.value.trim()){
+      var aid = uid();
+      var objA = { libelle: libEl.value.trim(), dateDebut:'', dateFin:'', t1Debut:'', t1Fin:'', t2Debut:'', t2Fin:'', t3Debut:'', t3Fin:'' };
+      cache.anneesScolaires.push(Object.assign({id:aid}, objA));
+      cache.anneeActive = aid; cache.school.anneeScolaire = objA.libelle;
+      ui.classeFiltre=''; saveUi(); render();
+      persistPayload();
+    }
+  }
+  else if(action === 'activer-annee'){
+    var aid2 = t.dataset.annee;
+    var a2 = cache.anneesScolaires.find(function(x){return x.id===aid2;});
+    if(a2){
+      cache.anneeActive = aid2; cache.school.anneeScolaire = a2.libelle;
+      ui.classeFiltre=''; saveUi(); render();
+      persistPayload();
+    }
+  }
   else if(action === 'add-classe'){
     var nomEl = document.getElementById('newClasseNom'), profEl = document.getElementById('newClasseProf'), nivEl = document.getElementById('newClasseNiveau');
     if(nomEl.value.trim()){
       var id = uid();
-      var obj = { nom:nomEl.value.trim(), professeurPrincipal:profEl.value.trim(), niveau: nivEl?nivEl.value:'' };
+      var obj = { nom:nomEl.value.trim(), professeurPrincipal:profEl.value.trim(), niveau: nivEl?nivEl.value:'', anneeId: cache.anneeActive };
       cache.classes.push(Object.assign({id:id}, obj));
       ui.classeFiltre = id; saveUi(); render();
       dbSet("classes", id, obj);
@@ -3009,7 +3090,7 @@ document.addEventListener('click', function(e){
 
 document.addEventListener('change', function(e){
   var t = e.target;
-  if(!writeGuardOk() && (t.dataset.path || t.dataset.classe || t.dataset.eleve || t.dataset.matiere || t.dataset.noteEleve || t.dataset.appelJour || t.dataset.conseilEleve || t.dataset.sheetDate || t.id==='logoInput' || t.hasAttribute('data-eleve-photo')
+  if(!writeGuardOk() && (t.dataset.path || t.dataset.classe || t.dataset.annee || t.dataset.eleve || t.dataset.matiere || t.dataset.noteEleve || t.dataset.appelJour || t.dataset.conseilEleve || t.dataset.sheetDate || t.id==='logoInput' || t.hasAttribute('data-eleve-photo')
     || t.dataset.appelStatut || t.dataset.appelPeriode || t.dataset.appelJustifiee || t.dataset.appelMotif || t.dataset.appelObservation || t.dataset.appelPiece || t.dataset.appelJustifStatut
     || t.dataset.parmatStatut || t.dataset.parmatJustifiee || t.dataset.parmatMotif || t.dataset.parmatObservation || t.dataset.parmatPiece || t.dataset.histEvtJustifStatut)) return;
 
@@ -3078,6 +3159,15 @@ document.addEventListener('change', function(e){
   if(t.dataset.classe){
     var c = cache.classes.find(function(x){return x.id===t.dataset.classe;});
     if(c){ var patch={}; patch[t.dataset.field]=t.value; c[t.dataset.field]=t.value; renderShell(); dbUpdate("classes", c.id, patch); }
+    return;
+  }
+  if(t.dataset.annee){
+    var an = cache.anneesScolaires.find(function(x){return x.id===t.dataset.annee;});
+    if(an){
+      var patchA={}; patchA[t.dataset.field]=t.value; an[t.dataset.field]=t.value;
+      if(t.dataset.field==='libelle' && an.id===cache.anneeActive){ cache.school.anneeScolaire = t.value; renderShell(); }
+      dbUpdate("anneesScolaires", an.id, patchA);
+    }
     return;
   }
   if(t.dataset.eleve){
