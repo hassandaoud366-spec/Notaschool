@@ -457,11 +457,12 @@ tr.row-absent{background:var(--warn-soft)}
 .appel-nb{font-size:11.5px; color:var(--ink-soft); margin-top:12px}
 .appel-nb ol{margin:4px 0 0; padding-left:18px}
 .print-only{display:none}
-.appel-date-blank{display:inline-block; border-bottom:1px solid var(--ink); width:78px; height:14px}
+.appel-date-blank{display:inline-block; border-bottom:1px solid var(--ink); width:60px; height:14px}
 
 @media print{
   @page{ size:A4; margin:12mm; }
-  @page appel{ size:A4 portrait; margin:8mm; }
+  @page appel{ size:A4 portrait; margin:6mm; }
+  @page appel-compact{ size:A4 portrait; margin:5mm; }
   .topbar, .tabs, .print-hint, .view-head, .panel, .banner{display:none !important}
   body{background:#fff; -webkit-print-color-adjust:exact; print-color-adjust:exact; color-adjust:exact;}
   main, .content-wrap{padding:0; margin:0; max-width:none}
@@ -476,14 +477,69 @@ tr.row-absent{background:var(--warn-soft)}
   #printBlockNotice{display:none}
   body.print-blocked-bulletin .sheet{display:none !important}
   body.print-blocked-bulletin #printBlockNotice{display:block !important; padding:60px 40px; font-size:16px; text-align:center; color:#000}
-  .appel-register{page:appel}
+  .appel-register{page:appel; padding:10px}
   .appel-register .screen-only{display:none !important}
   .appel-register .print-only{display:inline-block !important}
-  .appel-register .appel-table{font-size:8px}
-  .appel-register .appel-table th, .appel-register .appel-table td{padding:2px 3px}
-  .appel-register .appel-table tbody td, .appel-register .appel-table tfoot td{height:15px}
-  .appel-register .appel-head{grid-template-columns:1fr; gap:6px}
-  .appel-register .appel-titre{padding-block:4px}
+  .appel-register .appel-table{font-size:9.5px; table-layout:fixed; width:100%}
+  .appel-register .appel-table th, .appel-register .appel-table td{padding:2.5px 3.5px}
+  .appel-register .appel-table thead th{white-space:normal; word-break:break-word; line-height:1.15}
+  .appel-register .appel-table tbody td, .appel-register .appel-table tfoot td{height:6.4mm}
+  .appel-register .appel-head{grid-template-columns:1.25fr auto 1.25fr; gap:8px; margin-bottom:7px}
+  .appel-register .appel-titre{padding-block:3px; font-size:13.5px}
+  .appel-register .appel-box{padding:4px 10px}
+  .appel-register .appel-ecole-nom{font-size:12.5px}
+  .appel-register .appel-ecole-annee{font-size:10px; margin-top:1px}
+  .appel-register .appel-meta{margin-bottom:6px}
+  .appel-register .appel-nb{margin-top:6px; font-size:9px; line-height:1.25}
+  .appel-register .appel-nb ol{margin-top:3px; padding-left:15px}
+  /* Au-delà de 30 élèves, une classe de ce volume ne tient plus sur une
+     page A4 avec les tailles confortables ci-dessus : le JS ajoute alors la
+     classe .appel-compact pour resserrer uniquement ce cas-là (jusqu'à ~48
+     élèves sur 1 page), sans toucher aux classes normales. */
+  .appel-register.appel-compact{page:appel-compact; padding:6px}
+  .appel-register.appel-compact .appel-table{font-size:8px}
+  .appel-register.appel-compact .appel-table th, .appel-register.appel-compact .appel-table td{padding:1.5px 2.5px}
+  .appel-register.appel-compact .appel-table thead th{line-height:1.1}
+  .appel-register.appel-compact .appel-table tbody td, .appel-register.appel-compact .appel-table tfoot td{height:4.6mm}
+  .appel-register.appel-compact .appel-head{gap:6px; margin-bottom:4px}
+  .appel-register.appel-compact .appel-titre{padding-block:1px; font-size:12px}
+  .appel-register.appel-compact .appel-box{padding:2px 8px}
+  .appel-register.appel-compact .appel-ecole-nom{font-size:11px}
+  .appel-register.appel-compact .appel-ecole-annee{font-size:8.5px}
+  .appel-register.appel-compact .appel-meta{margin-bottom:3px}
+  .appel-register.appel-compact .appel-nb{margin-top:3px; font-size:8px; line-height:1.15}
+  .appel-register.appel-compact .appel-nb ol{margin-top:2px; padding-left:13px}
+
+  /* Forcer l'impression des couleurs (sinon certains navigateurs les omettent) */
+  * { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
+
+  /* Lignes grises du bas (Matières / Absents / Exclus / Émargement) plus visibles */
+  .appel-register .appel-table tfoot td{
+    background:#bdbdbd !important;
+    -webkit-print-color-adjust:exact !important; print-color-adjust:exact !important;
+  }
+  .appel-register .appel-table tfoot td:first-child{ text-align:left; font-weight:700; white-space:nowrap }
+
+  /* Ligne verticale entre Matin et Après-midi (colonnes 5|6 de chaque jour), et ligne
+     un peu plus épaisse entre Jour 1 et Jour 2 — sur toute la hauteur du tableau. */
+  .appel-register .appel-table thead tr:nth-child(1) th:nth-child(6),
+  .appel-register .appel-table thead tr:nth-child(1) th:nth-child(7){
+    background-image: linear-gradient(to right, transparent calc(55.5556% - 1.1px), #444 calc(55.5556% - 1.1px), #444 calc(55.5556% + 1.1px), transparent calc(55.5556% + 1.1px)) !important;
+    background-repeat:no-repeat !important;
+  }
+  .appel-register .appel-table thead tr:nth-child(1) th:nth-child(6){ border-right:2.2px solid #444 !important }
+  .appel-register .appel-table thead tr:nth-child(2) th:nth-child(1){ border-right:2px solid #444 !important }
+  .appel-register .appel-table thead tr:nth-child(2) th:nth-child(2){ border-right:2.2px solid #444 !important }
+  .appel-register .appel-table thead tr:nth-child(2) th:nth-child(3){ border-right:2px solid #444 !important }
+  .appel-register .appel-table thead tr:nth-child(3) th:nth-child(5){ border-right:2px solid #444 !important }
+  .appel-register .appel-table thead tr:nth-child(3) th:nth-child(9){ border-right:2.2px solid #444 !important }
+  .appel-register .appel-table thead tr:nth-child(3) th:nth-child(14){ border-right:2px solid #444 !important }
+  .appel-register .appel-table tbody td:nth-child(10){ border-right:2px solid #444 !important }
+  .appel-register .appel-table tbody td:nth-child(14){ border-right:2.2px solid #444 !important }
+  .appel-register .appel-table tbody td:nth-child(19){ border-right:2px solid #444 !important }
+  .appel-register .appel-table tfoot td:nth-child(6){ border-right:2px solid #444 !important }
+  .appel-register .appel-table tfoot td:nth-child(10){ border-right:2.2px solid #444 !important }
+  .appel-register .appel-table tfoot td:nth-child(15){ border-right:2px solid #444 !important }
 }
 @media screen{
   #printBlockNotice{display:none !important}
@@ -2789,8 +2845,9 @@ function renderAppelRegistre(classeId, eleves){
     + '</tr>';
   }).join('');
 
+  var appelCompactCls = (eleves.length > 30) ? ' appel-compact' : '';
   return ''
-  + '<div class="sheet appel-register">'
+  + '<div class="sheet appel-register'+appelCompactCls+'">'
     + '<div class="appel-head">'
       + '<div class="appel-box appel-ecole">'
         + '<div class="appel-ecole-nom">'+esc((school.nom||'Établissement scolaire').toUpperCase())+'</div>'
@@ -2813,6 +2870,13 @@ function renderAppelRegistre(classeId, eleves){
       + '<div>Classe <strong>'+esc(classe.nom)+'</strong></div>'
     + '</div>'
     + '<div class="table-wrap"><table class="appel-table">'
+      + '<colgroup>'
+        + '<col style="width:3.608%"><col style="width:21.134%"><col style="width:4.124%"><col style="width:10.309%"><col style="width:5.155%">'
+        + '<col style="width:3.093%"><col style="width:3.093%"><col style="width:3.093%"><col style="width:3.093%"><col style="width:3.093%">'
+        + '<col style="width:3.093%"><col style="width:3.093%"><col style="width:3.093%"><col style="width:3.093%">'
+        + '<col style="width:3.093%"><col style="width:3.093%"><col style="width:3.093%"><col style="width:3.093%"><col style="width:3.093%">'
+        + '<col style="width:3.093%"><col style="width:3.093%"><col style="width:3.093%"><col style="width:3.093%">'
+      + '</colgroup>'
       + '<thead>'
         + '<tr><th rowspan="3">N°</th><th rowspan="3">Noms des élèves</th><th rowspan="3">Genre</th><th rowspan="3">Date naiss</th><th rowspan="3">Statut</th><th colspan="9">Jour 1</th><th colspan="9">Jour 2</th></tr>'
         + '<tr><th colspan="5">Matin</th><th colspan="4">Après-midi</th><th colspan="5">Matin</th><th colspan="4">Après-midi</th></tr>'
