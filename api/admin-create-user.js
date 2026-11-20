@@ -36,7 +36,7 @@ module.exports = async function handler(req, res) {
 
   const { data: callerProfile, error: callerProfileErr } = await adminClient
     .from('profiles')
-    .select('role, actif')
+    .select('role, actif, etablissement_id')
     .eq('id', callerData.user.id)
     .maybeSingle();
 
@@ -72,6 +72,36 @@ module.exports = async function handler(req, res) {
     return;
   }
 
+  // Établissement du nouveau compte : revérifié ici, côté serveur, et jamais déduit
+  // tel quel de ce que le client envoie. Un directeur ne peut créer un compte que
+  // dans SON PROPRE établissement, quoi qu'il envoie dans la requête — on ignore
+  // body.etablissementId pour un directeur et on force sa propre valeur.
+  // L'administrateur principal peut choisir l'établissement (celui qu'il gère
+  // actuellement dans l'application), mais celui-ci doit exister réellement.
+  let etablissementId;
+  if (callerProfile.role === 'directeur') {
+    etablissementId = callerProfile.etablissement_id;
+  } else {
+    etablissementId = String(body.etablissementId || '').trim() || callerProfile.etablissement_id || 'main';
+    const { data: etabExiste, error: etabErr } = await adminClient
+      .from('etablissements')
+      .select('id')
+      .eq('id', etablissementId)
+      .maybeSingle();
+    if (etabErr) {
+      res.status(500).json({ error: 'Erreur vérification établissement : ' + etabErr.message });
+      return;
+    }
+    if (!etabExiste) {
+      res.status(400).json({ error: 'Établissement invalide ou introuvable.' });
+      return;
+    }
+  }
+  if (!etablissementId) {
+    res.status(400).json({ error: 'Établissement introuvable pour ce compte.' });
+    return;
+  }
+
   const email = identifiant.toLowerCase() + '@notaschool.internal';
 
   const { data: created, error: createErr } = await adminClient.auth.admin.createUser({
@@ -95,7 +125,8 @@ module.exports = async function handler(req, res) {
     full_name: nomComplet || identifiant,
     email,
     actif: true,
-    active: true
+    active: true,
+    etablissement_id: etablissementId
   });
 
   if (insertErr) {
@@ -104,5 +135,5 @@ module.exports = async function handler(req, res) {
     return;
   }
 
-  res.status(200).json({ ok: true, userId: newUserId, identifiant, role });
+  res.status(200).json({ ok: true, userId: newUserId, identifiant, role, etablissementId });
 };
