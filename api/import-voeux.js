@@ -28,7 +28,7 @@ module.exports = async function handler(req, res) {
   if (callerErr || !callerData || !callerData.user) { res.status(401).json({ error: 'Session invalide.' }); return; }
 
   const { data: callerProfile, error: callerProfileErr } = await adminClient
-    .from('profiles').select('role, actif').eq('id', callerData.user.id).maybeSingle();
+    .from('profiles').select('role, actif, etablissement_id').eq('id', callerData.user.id).maybeSingle();
   if (callerProfileErr) { res.status(500).json({ error: 'Erreur lecture profil : ' + callerProfileErr.message }); return; }
   if (!callerProfile || (callerProfile.role !== 'admin' && callerProfile.role !== 'directeur') || !callerProfile.actif) {
     res.status(403).json({ error: 'Réservé aux administrateurs et directeurs.' }); return;
@@ -39,8 +39,23 @@ module.exports = async function handler(req, res) {
   if (!lignes.length) { res.status(400).json({ error: 'Aucune ligne à importer.' }); return; }
   if (lignes.length > 1000) { res.status(400).json({ error: 'Lot trop volumineux (max 1000 lignes par envoi).' }); return; }
 
+  // Établissement concerné : pour un directeur, toujours forcé à SON PROPRE
+  // établissement (jamais déduit de ce que le client envoie) ; pour l'admin,
+  // celui actuellement géré dans l'application, vérifié qu'il existe réellement.
+  let etablissementId;
+  if (callerProfile.role === 'directeur') {
+    etablissementId = callerProfile.etablissement_id;
+  } else {
+    etablissementId = String(body.etablissementId || '').trim() || callerProfile.etablissement_id || 'main';
+    const { data: etabExiste, error: etabErr } = await adminClient
+      .from('etablissements').select('id').eq('id', etablissementId).maybeSingle();
+    if (etabErr) { res.status(500).json({ error: 'Erreur vérification établissement : ' + etabErr.message }); return; }
+    if (!etabExiste) { res.status(400).json({ error: 'Établissement invalide ou introuvable.' }); return; }
+  }
+  if (!etablissementId) { res.status(400).json({ error: 'Établissement introuvable.' }); return; }
+
   const { data: row, error: readErr } = await adminClient
-    .from('notaschool_data').select('payload').eq('school_key', 'main').maybeSingle();
+    .from('notaschool_data').select('payload').eq('school_key', etablissementId).maybeSingle();
   if (readErr) { res.status(500).json({ error: 'Erreur lecture des données : ' + readErr.message }); return; }
 
   const payload = row && row.payload ? row.payload : {};
@@ -75,7 +90,7 @@ module.exports = async function handler(req, res) {
     const nouveauPayload = Object.assign({}, payload, { eleves: eleves });
     const { error: writeErr } = await adminClient
       .from('notaschool_data')
-      .upsert({ school_key: 'main', payload: nouveauPayload, updated_at: new Date().toISOString() }, { onConflict: 'school_key' });
+      .upsert({ school_key: etablissementId, payload: nouveauPayload, updated_at: new Date().toISOString() }, { onConflict: 'school_key' });
     if (writeErr) { res.status(500).json({ error: 'Erreur enregistrement : ' + writeErr.message }); return; }
   }
 
