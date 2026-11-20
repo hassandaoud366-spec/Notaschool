@@ -632,6 +632,12 @@ tr.row-absent{background:var(--warn-soft)}
 
 /* ================= Supabase connection ================= */
 var supabase = null, viewer = null, viewerProfile = null, canWriteData = true, readOnlyForced = false;
+/* Établissement actif : pour un compte non-admin, toujours figé sur son propre
+   etablissement_id (profiles.etablissement_id, posé côté serveur — le client ne
+   peut pas le changer pour lui). Pour l'administrateur principal, il peut basculer
+   d'un établissement à l'autre (liste chargée depuis la table "etablissements"). */
+var etablissementActif = 'main';
+var etablissementsDisponibles = [];
 var syncChannel = null, saveQueue = Promise.resolve();
 var SUPABASE_URL = window.NOTASCHOOL_SUPABASE_URL || "";
 var SUPABASE_ANON_KEY = window.NOTASCHOOL_SUPABASE_ANON_KEY || "";
@@ -645,7 +651,7 @@ function loadUi(){
   var d = { tab:"etablissement", trimestre:1, classeFiltre:"", notesMatiere:"", bulletinMode:"un", bulletinEleve:"", deleteArmed:"", appelMode:"suivi", appelJour1:"", appelJour2:"",
     absDashEleve:"", absDashClasse:"", absDashDateDebut:"", absDashDateFin:"", absDashTrimestre:"", absDashJustifiee:"",
     appelMatDate:"", appelMatiereNom:"", appelMatHeureDebut:"", appelMatHeureFin:"", appelMatEditId:"",
-    histRecherche:"", histClasse:"", histTrimestre:"", histMois:"", histSemaine:"", histDate:"", histJour:"", histMatiere:"", histStatut:"", archiveQuery:"", passageClasseSource:"", notifLastSeen:"" };
+    histRecherche:"", histClasse:"", histTrimestre:"", histMois:"", histSemaine:"", histDate:"", histJour:"", histMatiere:"", histStatut:"", archiveQuery:"", passageClasseSource:"", notifLastSeen:"", etablissementActif:"" };
   try{ var raw = localStorage.getItem(LS_KEY); if(raw) return Object.assign(d, JSON.parse(raw)); }catch(e){}
   return d;
 }
@@ -699,6 +705,7 @@ function revealShell(){
   document.getElementById('gate').hidden=true; document.getElementById('shell').hidden=false;
   renderMeChip(); render();
   if(canManageUsers()) loadProfiles();
+  if(isAdmin()) loadEtablissements();
 }
 function markAllLoaded(){ cache.loaded={school:true,classes:true,eleves:true,matieres:true,notes:true,conseil:true}; }
 function payloadFromCache(){ return {school:cache.school,classes:cache.classes,eleves:cache.eleves,matieres:cache.matieres,notes:cache.notes,conseil:cache.conseil,appels:cache.appels,appelsEvt:cache.appelsEvt,anneesScolaires:cache.anneesScolaires,anneeActive:cache.anneeActive,historique:cache.historique}; }
@@ -743,7 +750,7 @@ async function loadSchoolData(){
   var result = await supabase
     .from('notaschool_data')
     .select('payload')
-    .eq('school_key', 'main')
+    .eq('school_key', etablissementActif)
     .maybeSingle();
 
   if(result.error) throw result.error;
@@ -759,7 +766,7 @@ async function loadSchoolData(){
     var ins = await supabase
       .from('notaschool_data')
       .insert({
-        school_key: 'main',
+        school_key: etablissementActif,
         payload: initial
       });
 
@@ -772,7 +779,7 @@ async function loadSchoolData(){
       var again = await supabase
         .from('notaschool_data')
         .select('payload')
-        .eq('school_key', 'main')
+        .eq('school_key', etablissementActif)
         .single();
 
       if(again.error) throw again.error;
@@ -804,7 +811,7 @@ function subscribeSchoolData(){
         event: '*',
         schema: 'public',
         table: 'notaschool_data',
-        filter: 'school_key=eq.main'
+        filter: 'school_key=eq.' + etablissementActif
       },
       function(msg){
 
@@ -835,7 +842,13 @@ async function loadViewerProfile(){
     throw new Error('Ce compte a été désactivé. Contactez un administrateur.');
   }
   viewerProfile = res.data;
+  if(isAdminProfile(viewerProfile)){
+    etablissementActif = (ui && ui.etablissementActif) || viewerProfile.etablissement_id || 'main';
+  } else {
+    etablissementActif = viewerProfile.etablissement_id || 'main';
+  }
 }
+function isAdminProfile(p){ return !!(p && p.role === 'admin'); }
 function isAdmin(){ return !!(viewerProfile && viewerProfile.role === 'admin'); }
 function isDirecteur(){ return !!(viewerProfile && viewerProfile.role === 'directeur'); }
 function isSurveillant(){ return !!(viewerProfile && viewerProfile.role === 'surveillant'); }
@@ -1039,7 +1052,7 @@ function persistPayload(){
   if(!supabase || !viewer) return Promise.reject(new Error('Utilisateur non connecté'));
   var payload=payloadFromCache(); flashSync('busy','Enregistrement…');
   saveQueue=saveQueue.then(async function(){
-    var res=await supabase.from('notaschool_data').upsert({school_key:'main',payload:payload,updated_at:new Date().toISOString()},{onConflict:'school_key'});
+    var res=await supabase.from('notaschool_data').upsert({school_key:etablissementActif,payload:payload,updated_at:new Date().toISOString()},{onConflict:'school_key'});
     if(res.error) throw res.error; flashSync('ok','Synchronisé');
   }).catch(function(err){handleWriteError(err);});
   return saveQueue;
@@ -1361,6 +1374,7 @@ function filePieceToDataUrl(file, cb){
 /* ================= icons / tabs ================= */
 var ICONS = {
   etablissement:'<svg viewBox="0 0 24 24" fill="none"><path d="M4 21V9l8-5 8 5v12" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/><path d="M9 21v-7h6v7" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></svg>',
+  etablissements:'<svg viewBox="0 0 24 24" fill="none"><path d="M3 21V6l6-3 6 3v15" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/><path d="M15 21V10l6-2v13" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/><path d="M7 9h2M7 13h2M7 17h2" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>',
   annees:'<svg viewBox="0 0 24 24" fill="none"><rect x="3" y="5" width="18" height="16" rx="2" stroke="currentColor" stroke-width="1.6"/><path d="M3 10h18M8 3v4M16 3v4" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>',
   archives:'<svg viewBox="0 0 24 24" fill="none"><circle cx="10.5" cy="10.5" r="6.5" stroke="currentColor" stroke-width="1.6"/><path d="M15.5 15.5 21 21" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>',
   passage:'<svg viewBox="0 0 24 24" fill="none"><path d="M4 12h13M12 6l5 6-5 6" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>',
@@ -1376,6 +1390,7 @@ var ICONS = {
 };
 var TABS = [
   {id:"etablissement", label:"Établissement"},
+  {id:"etablissements", label:"Établissements", superAdminOnly:true},
   {id:"annees", label:"Années scolaires"},
   {id:"archives", label:"Archives élèves", adminOnly:true},
   {id:"passage", label:"Passage de classe", adminOnly:true},
@@ -1532,6 +1547,7 @@ function renderShell(){
   ts.querySelectorAll('button').forEach(function(b){ var t = parseInt(b.dataset.term,10); b.setAttribute('aria-pressed', t===ui.trimestre ? "true":"false"); });
   var tabsEl = document.getElementById('tabs');
   var visibleTabs = TABS.filter(function(t){
+    if(t.superAdminOnly && !isAdmin()) return false;
     if(t.adminOnly && !canManageUsers()) return false;
     if(t.hideFor && viewerProfile && t.hideFor.indexOf(viewerProfile.role) !== -1) return false;
     return true;
@@ -1540,6 +1556,7 @@ function renderShell(){
   if(ui.tab==='journal' && !canManageUsers()) ui.tab='etablissement';
   if(ui.tab==='archives' && !canManageUsers()) ui.tab='etablissement';
   if(ui.tab==='passage' && !canManageUsers()) ui.tab='etablissement';
+  if(ui.tab==='etablissements' && !isAdmin()) ui.tab='etablissement';
   if(!visibleTabs.some(function(t){return t.id===ui.tab;})) ui.tab='etablissement';
   tabsEl.innerHTML = visibleTabs.map(function(t){
     return '<button type="button" class="tab-btn" data-tab="'+t.id+'" aria-current="'+(ui.tab===t.id?'true':'false')+'">'+ICONS[t.id]+'<span>'+t.label+'</span></button>';
@@ -1582,6 +1599,7 @@ function renderContent(){
   var el = document.getElementById('content');
   switch(ui.tab){
     case 'etablissement': el.innerHTML = readOnlyBanner() + viewEtablissement(); break;
+    case 'etablissements': el.innerHTML = isAdmin() ? (readOnlyBanner() + viewEtablissements()) : ''; break;
     case 'annees': el.innerHTML = readOnlyBanner() + viewAnneesScolaires(); break;
     case 'archives': el.innerHTML = canManageUsers() ? viewArchivesEleves() : ''; break;
     case 'passage': el.innerHTML = canManageUsers() ? viewPassageClasse() : ''; break;
@@ -1655,7 +1673,7 @@ function viewEtablissement(){
     ? '<div class="panel">'
       + '<h2>Sauvegarde (lecture seule)</h2>'
       + '<p class="hint" style="margin-top:0">Copie de secours des données actuelles, à titre de précaution. Réservé à l\'administrateur principal.</p>'
-      + '<div class="field"><label>Données (JSON)</label><textarea class="code" id="backupBox" readonly>'+esc(JSON.stringify({school:cache.school, classes:cache.classes, eleves:cache.eleves, matieres:cache.matieres, notes:cache.notes, conseil:cache.conseil}))+'</textarea></div>'
+      + '<div class="field"><label>Données (JSON)</label><textarea class="code" id="backupBox" readonly>'+esc(JSON.stringify(payloadFromCache()))+'</textarea></div>'
       + '<div class="row" style="margin-top:8px"><button type="button" class="btn btn-sm" data-action="copy-backup">Copier</button></div>'
     + '</div>'
     : '');
@@ -1709,6 +1727,47 @@ function viewClasses(){
 }
 
 /* ================= view: années scolaires ================= */
+/* ================= view: établissements (admin principal uniquement) ================= */
+async function loadEtablissements(){
+  if(!isAdmin()) return;
+  var res = await supabase.from('etablissements').select('*').order('nom');
+  if(res.error){ console.error('Erreur chargement établissements:', res.error); return; }
+  etablissementsDisponibles = res.data || [];
+  if(ui.tab==='etablissements') render();
+}
+function viewEtablissements(){
+  var dis = writeGuardOk() ? '' : ' disabled';
+  var rows = (etablissementsDisponibles||[]).slice().sort(function(a,b){ return (a.nom||'').localeCompare(b.nom||'','fr'); }).map(function(e){
+    var actif = e.id===etablissementActif;
+    return '<tr'+(actif?' class="row-active"':'')+'>'
+      + '<td>'+esc(e.nom)+'</td>'
+      + '<td><span class="mono">'+esc(e.id)+'</span></td>'
+      + '<td>'+(e.actif ? '<span class="pill pill-good">Actif</span>' : '<span class="pill pill-muted">Désactivé</span>')+'</td>'
+      + '<td>'+(actif
+          ? '<span class="pill pill-good">En cours de gestion</span>'
+          : '<button type="button" class="btn btn-sm" data-action="basculer-etablissement" data-etab="'+e.id+'"'+dis+'>Gérer celui-ci</button>')+'</td>'
+      + '<td><button type="button" class="btn btn-sm btn-ghost" data-action="toggle-etablissement-actif" data-etab="'+e.id+'" data-current="'+(e.actif?'1':'0')+'"'+dis+'>'+(e.actif?'Désactiver':'Réactiver')+'</button></td>'
+    + '</tr>';
+  }).join('');
+
+  return ''
+  + '<div class="view-head"><div><h1>Établissements</h1><p>Chaque établissement a ses propres classes, élèves, enseignants, notes et bulletins, totalement séparés des autres. Réservé à l\'administrateur principal.</p></div></div>'
+  + '<div class="panel">'
+    + '<h2>Nouvel établissement</h2>'
+    + '<div class="field-grid">'
+      + '<div class="field"><label>Nom de l\'établissement</label><input type="text" id="newEtabNom" placeholder="ex. Lycée de Tadjourah"'+dis+'></div>'
+    + '</div>'
+    + '<div class="row" style="margin-top:12px"><button type="button" class="btn btn-primary" data-action="add-etablissement"'+dis+'>Créer l\'établissement</button></div>'
+    + '<p class="hint" style="margin-top:10px">La création crée un espace de données totalement vide et séparé. Vous pourrez ensuite y créer un compte Directeur depuis l\'onglet « Gérer celui-ci » → « Utilisateurs ».</p>'
+  + '</div>'
+  + '<div class="panel">'
+    + '<h2>Établissements <span class="count">'+(etablissementsDisponibles||[]).length+'</span></h2>'
+    + ((etablissementsDisponibles||[]).length
+      ? '<div class="table-wrap"><table><thead><tr><th>Nom</th><th>Identifiant</th><th>Statut</th><th>Gestion</th><th></th></tr></thead><tbody>'+rows+'</tbody></table></div>'
+      : '<div class="empty">Aucun établissement pour l\'instant.</div>')
+  + '</div>';
+}
+
 function viewAnneesScolaires(){
   var dis = writeGuardOk() ? '' : ' disabled';
   var annees = (cache.anneesScolaires||[]).slice().sort(function(a,b){ return (a.libelle||'').localeCompare(b.libelle||'','fr'); });
@@ -1973,7 +2032,7 @@ async function confirmerImportEleves(){
   try{
     for(var j=0;j<lots.length;j++){
       var lot = lots[j].map(function(r){ return { nom:r.nom, prenom:r.prenom, sexe:r.sexe, dateNaissance:r.dateNaissance, matricule:r.matricule, classeId:r.classeId }; });
-      var resp = await callAdminApi('/api/import-eleves', { eleves: lot });
+      var resp = await callAdminApi('/api/import-eleves', { eleves: lot, etablissementId: etablissementActif });
       totalImportes += resp.importes || 0;
       (resp.rejetes||[]).forEach(function(rj){ rejetesServeur.push(rj); });
       importEleves.progress = { envoyees: Math.min((j+1)*TAILLE_LOT, importEleves.validRows.length), total: importEleves.validRows.length };
@@ -2050,7 +2109,7 @@ function renderImportEleves(classes){
 
 /* ================= Orientation Établissement (9e) : téléchargement + import — réservé Admin/Directeur ================= */
 function telechargerModeleOrientation(){
-  telechargerFichierAdmin('/api/export-orientation', {}, 'Notaschool_modele_orientation.xlsx')
+  telechargerFichierAdmin('/api/export-orientation', { etablissementId: etablissementActif }, 'Notaschool_modele_orientation.xlsx')
     .catch(function(err){ alert('Téléchargement impossible : ' + (err.message||err)); });
 }
 
@@ -2107,7 +2166,7 @@ async function confirmerImportOrientation(){
   if(!importOrientation || !importOrientation.validRows.length) return;
   importOrientation.step = 'running'; render();
   try{
-    var resp = await callAdminApi('/api/import-orientation', { lignes: importOrientation.validRows });
+    var resp = await callAdminApi('/api/import-orientation', { lignes: importOrientation.validRows, etablissementId: etablissementActif });
     importOrientation.step = 'done';
     importOrientation.resultat = resp;
   }catch(err){
@@ -2163,7 +2222,7 @@ function renderImportOrientation(){
 
 /* ================= Vœux 2nde : téléchargement + import — réservé Admin/Directeur ================= */
 function telechargerModeleVoeux(classeId){
-  telechargerFichierAdmin('/api/export-voeux', { classeId: classeId || 'all' }, 'Notaschool_modele_voeux_2nde.xlsx')
+  telechargerFichierAdmin('/api/export-voeux', { classeId: classeId || 'all', etablissementId: etablissementActif }, 'Notaschool_modele_voeux_2nde.xlsx')
     .catch(function(err){ alert('Téléchargement impossible : ' + (err.message||err)); });
 }
 
@@ -2209,7 +2268,7 @@ async function confirmerImportVoeux(){
   if(!importVoeux || !importVoeux.validRows.length) return;
   importVoeux.step = 'running'; render();
   try{
-    var resp = await callAdminApi('/api/import-voeux', { lignes: importVoeux.validRows });
+    var resp = await callAdminApi('/api/import-voeux', { lignes: importVoeux.validRows, etablissementId: etablissementActif });
     importVoeux.step = 'done';
     importVoeux.resultat = resp;
   }catch(err){
@@ -3083,11 +3142,17 @@ function renderBilanAnnuel(e, conseilT3, annStats, heuresTri){
 
 /* ================= view: utilisateurs (admin) ================= */
 function viewUtilisateurs(){
+  var etabActifObj = (etablissementsDisponibles||[]).find(function(e){return e.id===etablissementActif;});
+  var nomEtabActif = etabActifObj ? etabActifObj.nom : (cache.school && cache.school.nom) || '';
   var creatableRoles = isAdmin() ? Object.keys(ROLES_LABELS) : ['enseignant','secretaire','surveillant'];
   var roleOpts = creatableRoles.map(function(r){ return '<option value="'+r+'">'+ROLES_LABELS[r]+'</option>'; }).join('');
   var liste = (cache.profiles||[]).slice().sort(function(a,b){ return (a.identifiant||'').localeCompare(b.identifiant||'','fr'); });
   if(!isAdmin()){
     liste = liste.filter(function(p){ return p.role==='enseignant' || p.role==='secretaire' || p.role==='surveillant'; });
+  } else {
+    /* L'admin voit, par établissement géré, les comptes de cet établissement + les éventuels
+       autres administrateurs (rôle global, non rattaché à un établissement en particulier). */
+    liste = liste.filter(function(p){ return p.role==='admin' || p.etablissement_id===etablissementActif; });
   }
 
   var rows = liste.map(function(p){
@@ -3113,7 +3178,7 @@ function viewUtilisateurs(){
   var nbEnseignants2 = liste.filter(function(p){ return p.role==='enseignant'; }).length;
 
   return ''
-  + '<div class="view-head"><div><h1>Utilisateurs</h1><p>'+(isAdmin() ? 'Créez un compte pour chaque enseignant, secrétaire ou directeur, avec un identifiant et un mot de passe temporaire.' : 'Créez un compte pour chaque enseignant ou secrétaire, avec un identifiant et un mot de passe temporaire.')+' L’identifiant sert à se connecter, sans adresse e-mail.</p></div></div>'
+  + '<div class="view-head"><div><h1>Utilisateurs</h1><p>'+(isAdmin() ? ('Comptes de l\'établissement en cours de gestion'+(nomEtabActif?(' ('+esc(nomEtabActif)+')'):'')+'. Créez un compte pour chaque enseignant, secrétaire ou directeur, avec un identifiant et un mot de passe temporaire.') : 'Créez un compte pour chaque enseignant ou secrétaire, avec un identifiant et un mot de passe temporaire.')+' L’identifiant sert à se connecter, sans adresse e-mail.</p></div></div>'
   + (liste.length ? '<div class="stat-grid">'
     + '<div class="stat-card"><div class="stat-icon">'+ICONS.utilisateurs+'</div><div class="stat-num tabnum">'+liste.length+'</div><div class="stat-label">Comptes créés</div></div>'
     + '<div class="stat-card"><div class="stat-icon good"><svg viewBox="0 0 24 24" fill="none"><path d="M5 13l4 4L19 7" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg></div><div class="stat-num tabnum">'+nbActifs+'</div><div class="stat-label">Comptes actifs</div></div>'
@@ -3207,6 +3272,48 @@ document.addEventListener('click', function(e){
   else if(action === 'copy-backup'){
     var box = document.getElementById('backupBox'); box.select();
     navigator.clipboard && navigator.clipboard.writeText(box.value).catch(function(){ try{ document.execCommand('copy'); }catch(err){} });
+  }
+  else if(action === 'add-etablissement'){
+    if(!isAdmin()) return;
+    var nomEtabEl = document.getElementById('newEtabNom');
+    if(nomEtabEl && nomEtabEl.value.trim()){
+      var nomEtab = nomEtabEl.value.trim();
+      var idEtab = 'etab_' + uid();
+      (async function(){
+        var insEtab = await supabase.from('etablissements').insert({ id: idEtab, nom: nomEtab, actif: true });
+        if(insEtab.error){ alert('Erreur lors de la création : '+insEtab.error.message); return; }
+        var insData = await supabase.from('notaschool_data').insert({ school_key: idEtab, payload: { school: { nom: nomEtab, telephone:'', email:'', anneeScolaire:'', logo:'' } } });
+        if(insData.error){ alert('Établissement créé, mais erreur lors de l\'initialisation de ses données : '+insData.error.message); }
+        logActivite('Création établissement', nomEtab);
+        persistPayload();
+        await loadEtablissements();
+      })();
+    }
+  }
+  else if(action === 'toggle-etablissement-actif'){
+    if(!isAdmin()) return;
+    var idToggle = t.dataset.etab, curActif = t.dataset.current === '1';
+    (async function(){
+      var upd = await supabase.from('etablissements').update({ actif: !curActif }).eq('id', idToggle);
+      if(upd.error){ alert('Erreur : '+upd.error.message); return; }
+      logActivite(curActif ? 'Désactivation établissement' : 'Réactivation établissement', idToggle);
+      persistPayload();
+      await loadEtablissements();
+    })();
+  }
+  else if(action === 'basculer-etablissement'){
+    if(!isAdmin()) return;
+    var idBasculer = t.dataset.etab;
+    if(!idBasculer || idBasculer===etablissementActif) return;
+    etablissementActif = idBasculer;
+    ui.etablissementActif = idBasculer; ui.tab = 'etablissement'; saveUi();
+    (async function(){
+      try{
+        await loadSchoolData();
+        subscribeSchoolData();
+        render();
+      }catch(err){ alert('Erreur lors du basculement : '+(err.message||String(err))); }
+    })();
   }
   else if(action === 'add-annee'){
     var libEl = document.getElementById('newAnneeLibelle');
@@ -3377,7 +3484,7 @@ document.addEventListener('click', function(e){
     var identifiant=(idEl.value||'').trim(), password=pwEl.value||'', role=rEl.value, nomComplet=(nEl2.value||'').trim();
     if(!identifiant || !password){ hintEl.textContent='Identifiant et mot de passe sont requis.'; return; }
     btn.disabled=true; hintEl.textContent='Création en cours…';
-    callAdminApi('/api/admin-create-user', {identifiant:identifiant, password:password, role:role, nomComplet:nomComplet})
+    callAdminApi('/api/admin-create-user', {identifiant:identifiant, password:password, role:role, nomComplet:nomComplet, etablissementId: etablissementActif})
       .then(function(){
         hintEl.textContent='Compte « '+identifiant+' » créé.';
         idEl.value=''; pwEl.value=''; nEl2.value='';
