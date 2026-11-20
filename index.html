@@ -350,10 +350,18 @@ tr.row-absent{background:var(--warn-soft)}
 #gate .gate-foot{margin-top:20px; padding-top:16px; border-top:1px solid #eef1f8; font-size:11px; color:#9aa7c2; font-style:italic}
 #gate .spin{border-top-color:var(--ns-blue)}
 @media (max-width:900px){
-  #gate{grid-template-columns:1fr; display:block}
+  #gate{grid-template-columns:1fr; display:block; min-height:100dvh}
   #gate .gate-show{display:none}
-  #gate .gate-mobile-brand{display:flex}
-  #gate .gate-panel{padding:8px 16px 36px; min-height:0}
+  #gate .gate-mobile-brand{display:none}
+  #gate .gate-panel{
+    display:flex; align-items:center; justify-content:center;
+    padding:0; margin:0; min-height:100dvh; width:100%; background:#fff;
+  }
+  #gate .gate-card{
+    width:100%; max-width:none; min-height:100dvh; border-radius:0; box-shadow:none; border:0;
+    display:flex; flex-direction:column; justify-content:center;
+    padding:32px 22px calc(32px + env(safe-area-inset-bottom,0px));
+  }
 }
 @media (max-width:420px){
   #gate .gate-card{padding:30px 20px}
@@ -2027,7 +2035,7 @@ function viewNotes(){
         + '<td><input type="number" min="0" max="20" step="0.25" class="mono" data-note-eleve="'+e.id+'" data-note-field="dev3" value="'+(entry.valeurs[2]??'')+'"'+dis+'></td>'
         + '<td><input type="number" min="0" max="20" step="0.25" class="mono" data-note-eleve="'+e.id+'" data-note-field="dev4" value="'+(entry.valeurs[3]??'')+'"'+dis+'></td>'
         + '<td class="tabnum" style="text-align:center">'+fmt(moy)+'</td>'
-        + '<td style="text-align:center">'+(rang ? '<span class="pill pill-'+tone+'">'+ordinal(rang)+'</span>' : '—')+'</td>'
+        + '<td style="text-align:center">'+(rang ? '<span class="pill pill-'+tone+'">'+rang+'</span>' : '—')+'</td>'
         + '<td><input type="text" data-note-eleve="'+e.id+'" data-note-field="appreciation" value="'+esc(entry.appreciation)+'" placeholder="'+esc(suggestAppreciation(moy)||'Appréciation')+'"'+dis+'></td>'
       + '</tr>';
     }).join('');
