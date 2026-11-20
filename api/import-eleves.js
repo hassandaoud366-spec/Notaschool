@@ -43,7 +43,7 @@ module.exports = async function handler(req, res) {
 
   const { data: callerProfile, error: callerProfileErr } = await adminClient
     .from('profiles')
-    .select('role, actif')
+    .select('role, actif, etablissement_id')
     .eq('id', callerData.user.id)
     .maybeSingle();
 
@@ -68,11 +68,26 @@ module.exports = async function handler(req, res) {
     return;
   }
 
+  // Établissement concerné : pour un directeur, toujours forcé à SON PROPRE
+  // établissement (jamais déduit de ce que le client envoie) ; pour l'admin,
+  // celui actuellement géré dans l'application, vérifié qu'il existe réellement.
+  let etablissementId;
+  if (callerProfile.role === 'directeur') {
+    etablissementId = callerProfile.etablissement_id;
+  } else {
+    etablissementId = String(body.etablissementId || '').trim() || callerProfile.etablissement_id || 'main';
+    const { data: etabExiste, error: etabErr } = await adminClient
+      .from('etablissements').select('id').eq('id', etablissementId).maybeSingle();
+    if (etabErr) { res.status(500).json({ error: 'Erreur vérification établissement : ' + etabErr.message }); return; }
+    if (!etabExiste) { res.status(400).json({ error: 'Établissement invalide ou introuvable.' }); return; }
+  }
+  if (!etablissementId) { res.status(400).json({ error: 'Établissement introuvable.' }); return; }
+
   // Lecture de la ligne unique de données (lecture-fusion-écriture, service_role = pas de RLS).
   const { data: row, error: readErr } = await adminClient
     .from('notaschool_data')
     .select('payload')
-    .eq('school_key', 'main')
+    .eq('school_key', etablissementId)
     .maybeSingle();
 
   if (readErr) {
@@ -131,7 +146,7 @@ module.exports = async function handler(req, res) {
     const nouveauPayload = Object.assign({}, safePayload, { eleves: eleves });
     const { error: writeErr } = await adminClient
       .from('notaschool_data')
-      .upsert({ school_key: 'main', payload: nouveauPayload, updated_at: new Date().toISOString() }, { onConflict: 'school_key' });
+      .upsert({ school_key: etablissementId, payload: nouveauPayload, updated_at: new Date().toISOString() }, { onConflict: 'school_key' });
 
     if (writeErr) {
       res.status(500).json({ error: 'Erreur enregistrement : ' + writeErr.message });
