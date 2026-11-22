@@ -588,6 +588,26 @@ tr.row-absent{background:var(--warn-soft)}
   .appel-head{grid-template-columns:1fr}
   .appel-dates{flex-direction:column}
 }
+.toast-container{position:fixed; z-index:9999; top:16px; right:16px; display:flex; flex-direction:column; gap:10px; max-width:380px; pointer-events:none}
+.toast{display:flex; align-items:flex-start; gap:10px; background:#1b2436; color:#eef1f6; border-radius:10px; padding:12px 14px; box-shadow:0 8px 24px rgba(0,0,0,.28); border-left:4px solid #6b7686; opacity:0; transform:translateX(16px); transition:opacity .22s ease, transform .22s ease; pointer-events:auto}
+.toast.show{opacity:1; transform:translateX(0)}
+.toast.hide{opacity:0; transform:translateX(16px)}
+.toast-success{border-left-color:#2fb66a}
+.toast-error{border-left-color:#e2554b}
+.toast-info{border-left-color:#3d8bf0}
+.toast-icon{flex:0 0 auto; width:20px; height:20px; border-radius:999px; display:flex; align-items:center; justify-content:center; margin-top:1px}
+.toast-success .toast-icon{background:rgba(47,182,106,.18); color:#4fd98a}
+.toast-error .toast-icon{background:rgba(226,85,75,.18); color:#f08075}
+.toast-info .toast-icon{background:rgba(61,139,240,.18); color:#7db4f7}
+.toast-msg{font-size:13px; line-height:1.4; padding-top:1px}
+.toast-close{flex:0 0 auto; background:none; border:0; color:#8e97a6; cursor:pointer; font-size:14px; line-height:1; padding:2px; margin:-2px -2px -2px 2px}
+.toast-close:hover{color:#eef1f6}
+@media (max-width:640px){
+  .toast-container{left:12px; right:12px; top:auto; bottom:12px; max-width:none}
+  .toast{transform:translateY(16px)}
+  .toast.show{transform:translateY(0)}
+  .toast.hide{transform:translateY(16px)}
+}
 </style>
 
 <div class="app" id="app">
@@ -1038,6 +1058,7 @@ async function changerMonMotDePasse(){
     if(upd.error){ afficherMsg('Erreur : ' + upd.error.message, false); return; }
 
     afficherMsg('Votre mot de passe a été modifié avec succès.', true);
+    showToast('success', 'Mot de passe modifié avec succès !');
     document.getElementById('pwdAncien').value = '';
     document.getElementById('pwdNouveau').value = '';
     document.getElementById('pwdConfirmer').value = '';
@@ -1077,9 +1098,9 @@ async function boot(){
       forgotBtn.disabled = true; var oldLabel = forgotBtn.textContent; forgotBtn.textContent = 'Envoi en cours…';
       try{
         var res = await supabase.auth.resetPasswordForEmail(email);
-        if(res && res.error){ alert('Erreur : ' + res.error.message); }
-        else{ alert('Si ce compte existe, un email de réinitialisation du mot de passe a été envoyé.'); }
-      }catch(err){ alert('Erreur : ' + (err.message || String(err))); }
+        if(res && res.error){ showToast('error', 'Erreur : ' + res.error.message); }
+        else{ showToast('info', 'Si ce compte existe, un email de réinitialisation du mot de passe a été envoyé.'); }
+      }catch(err){ showToast('error', 'Erreur : ' + (err.message || String(err))); }
       finally{ forgotBtn.disabled = false; forgotBtn.textContent = oldLabel; }
     });
   }
@@ -1145,15 +1166,59 @@ function flashSync(state,label){
 function writeGuardOk(){ return !readOnlyForced && !!viewer; }
 function anneeActiveEstCloturee(){ var a = (cache.anneesScolaires||[]).find(function(x){return x.id===cache.anneeActive;}); return !!(a && a.cloturee); }
 function writeGuardOkDonnees(){ return writeGuardOk() && !anneeActiveEstCloturee(); }
-function handleWriteError(err){ flashSync('off','Erreur de synchronisation'); console.error('Supabase write error:',err); alert('Enregistrement impossible : '+(err&&err.message?err.message:'vérifiez les droits Supabase et votre connexion.')); }
+
+/* ================= toast notifications =================
+   Petites notifications visuelles (succès/erreur/info), affichées UNIQUEMENT après
+   confirmation réelle d'une opération (jamais de manière optimiste) : les succès sont
+   déclenchés depuis le .then() des actions explicites (créer, modifier, supprimer…),
+   et les erreurs sont centralisées dans handleWriteError, appelé par persistPayload()
+   seulement quand Supabase a effectivement renvoyé une erreur. */
+var TOAST_ICONS = {
+  success: '<svg viewBox="0 0 24 24" fill="none" width="12" height="12"><path d="M5 13l4 4L19 7" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+  error: '<svg viewBox="0 0 24 24" fill="none" width="12" height="12"><path d="M18 6 6 18M6 6l12 12" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/></svg>',
+  info: '<svg viewBox="0 0 24 24" fill="none" width="12" height="12"><circle cx="12" cy="12" r="9" stroke="currentColor" stroke-width="2"/><path d="M12 11v5.5M12 7.6v.1" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></svg>'
+};
+function showToast(type, message, durationMs){
+  if(['success','error','info'].indexOf(type)===-1) type='info';
+  var cont = document.getElementById('toastContainer');
+  if(!cont){
+    cont = document.createElement('div');
+    cont.id = 'toastContainer'; cont.className = 'toast-container'; cont.setAttribute('aria-live','polite');
+    document.body.appendChild(cont);
+  }
+  var el = document.createElement('div');
+  el.className = 'toast toast-'+type;
+  el.innerHTML = '<span class="toast-icon">'+TOAST_ICONS[type]+'</span><span class="toast-msg"></span><button type="button" class="toast-close" aria-label="Fermer">✕</button>';
+  el.querySelector('.toast-msg').textContent = message;
+  var removeNow = function(){
+    el.classList.remove('show'); el.classList.add('hide');
+    setTimeout(function(){ if(el.parentNode) el.parentNode.removeChild(el); }, 250);
+  };
+  el.querySelector('.toast-close').addEventListener('click', removeNow);
+  cont.appendChild(el);
+  requestAnimationFrame(function(){ el.classList.add('show'); });
+  setTimeout(removeNow, durationMs || 4200);
+}
+function handleWriteError(err){
+  flashSync('off','Erreur de synchronisation');
+  console.error('Supabase write error:',err);
+  showToast('error', 'Enregistrement impossible : '+(err&&err.message?err.message:'vérifiez les droits Supabase et votre connexion.'));
+}
 function persistPayload(){
+  /* saveQueue sérialise les écritures (chaque appel attend la précédente) et NE DOIT JAMAIS
+     rester bloquée en échec : elle avale ses propres erreurs (via handleWriteError, qui affiche
+     déjà le toast rouge) pour que les écritures suivantes puissent continuer. Mais la promesse
+     RENVOYÉE À L'APPELANT (thisWrite) n'avale rien : elle reflète fidèlement la réussite ou
+     l'échec réel de CETTE écriture, pour que les .then(...) qui affichent un toast de succès ne
+     se déclenchent jamais après un échec. */
   if(!supabase || !viewer) return Promise.reject(new Error('Utilisateur non connecté'));
   var payload=payloadFromCache(); flashSync('busy','Enregistrement…');
-  saveQueue=saveQueue.then(async function(){
+  var thisWrite = saveQueue.then(async function(){
     var res=await supabase.from('notaschool_data').upsert({school_key:etablissementActif,payload:payload,updated_at:new Date().toISOString()},{onConflict:'school_key'});
     if(res.error) throw res.error; flashSync('ok','Synchronisé');
-  }).catch(function(err){handleWriteError(err);});
-  return saveQueue;
+  });
+  saveQueue = thisWrite.catch(function(err){ handleWriteError(err); });
+  return thisWrite;
 }
 function dbSet(path,id,data){
   if(path==='config/ecole'){cache.school=data;return persistPayload();}
@@ -1305,16 +1370,16 @@ function getAppelsEvtDeClasseDate(classeId, date){
     .sort(function(a,b){ return (a.heureDebut||'').localeCompare(b.heureDebut||''); });
 }
 function setAppelEvt(evt){
-  if(!writeGuardOkDonnees() || !canEditAppels()) return;
+  if(!writeGuardOkDonnees() || !canEditAppels()) return Promise.resolve();
   evt.dureeHeures = dureeHeuresEntre(evt.heureDebut, evt.heureFin);
   evt.anneeScolaire = (cache.school&&cache.school.anneeScolaire)||'';
   if(!evt.creeLe) evt.creeLe = new Date().toISOString();
   evt.modifieLe = new Date().toISOString();
   evt.auteur = (viewerProfile && (viewerProfile.full_name||viewerProfile.identifiant)) || '—';
   cache.appelsEvt[evt.id] = evt;
-  dbSet('appelsEvt', evt.id, evt);
+  return dbSet('appelsEvt', evt.id, evt);
 }
-function deleteAppelEvt(id){ if(!writeGuardOkDonnees() || !canEditAppels()) return; delete cache.appelsEvt[id]; dbDelete('appelsEvt', id); }
+function deleteAppelEvt(id){ if(!writeGuardOkDonnees() || !canEditAppels()) return Promise.resolve(); delete cache.appelsEvt[id]; return dbDelete('appelsEvt', id); }
 
 /* Liste à plat de tous les enregistrements d'absence/retard d'un élève pour le nouveau système
    (un enregistrement par appel-matière où l'élève n'est pas « présent »). */
@@ -2859,6 +2924,18 @@ function renderAppelParMatiere(classeId, eleves){
   var hFin = ui.appelMatHeureFin || '';
   var dureeApercu = dureeHeuresEntre(hDebut, hFin);
 
+  /* Matière : liste déroulante alimentée depuis l'onglet Matières, propre à la classe sélectionnée
+     (plus de saisie manuelle). On garde l'ancienne valeur en option si elle ne correspond plus à
+     aucune matière existante (compatibilité avec un appel déjà enregistré avant ce changement). */
+  var matieresClasse = matieresDe(classeId);
+  var matiereExiste = matieresClasse.some(function(m){ return m.nom===matiere; });
+  var matiereOptionsHtml = '<option value=""'+(matiere?'':' selected')+'>— Choisir une matière —</option>'
+    + (matiere && !matiereExiste ? '<option value="'+esc(matiere)+'" selected>'+esc(matiere)+' (ancienne saisie)</option>' : '')
+    + matieresClasse.map(function(m){ return '<option value="'+esc(m.nom)+'"'+(m.nom===matiere?' selected':'')+'>'+esc(m.nom)+'</option>'; }).join('');
+  var matiereFieldHtml = matieresClasse.length
+    ? '<select id="appelMatiereNom"'+dis+'>'+matiereOptionsHtml+'</select>'
+    : '<select id="appelMatiereNom" disabled><option value="">Aucune matière pour cette classe</option></select>';
+
   var rows = eleves.map(function(e){
     var cur = appelMatSaisie[e.id] || { statut:'present', justifiee:false, motif:'', observation:'', piece:null };
     var isAbs = cur.statut==='absent';
@@ -2885,13 +2962,14 @@ function renderAppelParMatiere(classeId, eleves){
 
   return vendrediMsg
   + '<div class="panel"><h2>Nouvel appel — matière</h2>'
-    + '<p class="hint" style="margin-top:0">Saisissez la matière et l\'horaire réel tel que constaté au moment de l\'appel (jamais depuis l\'emploi du temps).</p>'
+    + '<p class="hint" style="margin-top:0">Choisissez la matière dans la liste et saisissez l\'horaire réel tel que constaté au moment de l\'appel (jamais depuis l\'emploi du temps).</p>'
     + '<div class="field-grid">'
       + '<div class="field"><label>Date</label><input type="date" id="appelMatDate" value="'+esc(date)+'"'+dis+'></div>'
-      + '<div class="field"><label>Matière</label><input type="text" id="appelMatiereNom" value="'+esc(matiere)+'" placeholder="Ex. Mathématiques"'+dis+'></div>'
+      + '<div class="field"><label>Matière</label>'+matiereFieldHtml+'</div>'
       + '<div class="field"><label>Heure de début</label><input type="time" id="appelMatHeureDebut" value="'+esc(hDebut)+'"'+dis+'></div>'
       + '<div class="field"><label>Heure de fin</label><input type="time" id="appelMatHeureFin" value="'+esc(hFin)+'"'+dis+'></div>'
     + '</div>'
+    + (matieresClasse.length ? '' : '<p class="hint" style="color:var(--danger)">Aucune matière n\'est encore créée pour cette classe : ajoutez-en d\'abord dans l\'onglet « Matières ».</p>')
     + '<p class="hint">Durée retenue (heures entières, sans arrondi au supérieur) : <strong>'+dureeApercu+' h</strong></p>'
     + '<div class="table-wrap"><table><thead><tr><th>Élève</th><th>Statut</th><th>Justifiée</th><th>Motif</th><th>Observation</th><th>Justificatif</th></tr></thead><tbody>'+rows+'</tbody></table></div>'
     + '<div class="row" style="margin-top:10px"><button type="button" class="btn btn-primary" data-action="parmat-enregistrer" data-classe="'+classeId+'"'+dis+'>Enregistrer cet appel</button></div>'
@@ -3437,12 +3515,13 @@ document.addEventListener('click', function(e){
       var idEtab = 'etab_' + uid();
       (async function(){
         var insEtab = await supabase.from('etablissements').insert({ id: idEtab, nom: nomEtab, actif: true });
-        if(insEtab.error){ alert('Erreur lors de la création : '+insEtab.error.message); return; }
+        if(insEtab.error){ showToast('error', 'Erreur lors de la création : '+insEtab.error.message); return; }
         var insData = await supabase.from('notaschool_data').insert({ school_key: idEtab, payload: { school: { nom: nomEtab, telephone:'', email:'', anneeScolaire:'', logo:'' } } });
-        if(insData.error){ alert('Établissement créé, mais erreur lors de l\'initialisation de ses données : '+insData.error.message); }
+        if(insData.error){ showToast('error', 'Établissement créé, mais erreur lors de l\'initialisation de ses données : '+insData.error.message); return; }
         logActivite('Création établissement', nomEtab);
         persistPayload();
         await loadEtablissements();
+        showToast('success', 'Établissement « '+nomEtab+' » créé avec succès !');
       })();
     }
   }
@@ -3451,10 +3530,11 @@ document.addEventListener('click', function(e){
     var idToggle = t.dataset.etab, curActif = t.dataset.current === '1';
     (async function(){
       var upd = await supabase.from('etablissements').update({ actif: !curActif }).eq('id', idToggle);
-      if(upd.error){ alert('Erreur : '+upd.error.message); return; }
+      if(upd.error){ showToast('error', 'Erreur : '+upd.error.message); return; }
       logActivite(curActif ? 'Désactivation établissement' : 'Réactivation établissement', idToggle);
       persistPayload();
       await loadEtablissements();
+      showToast('success', curActif ? 'Établissement désactivé avec succès.' : 'Établissement réactivé avec succès.');
     })();
   }
   else if(action === 'basculer-etablissement'){
@@ -3480,7 +3560,7 @@ document.addEventListener('click', function(e){
       cache.anneeActive = aid; cache.school.anneeScolaire = objA.libelle;
       ui.classeFiltre=''; saveUi(); render();
       logActivite('Création année scolaire', objA.libelle);
-      persistPayload();
+      persistPayload().then(function(){ showToast('success', 'Année scolaire « '+objA.libelle+' » créée avec succès !'); });
     }
   }
   else if(action === 'activer-annee'){
@@ -3523,17 +3603,17 @@ document.addEventListener('click', function(e){
     var elevesSrc = elevesDe(classeSrc);
     var aReinscrire = elevesSrc.filter(function(e){ var st=passageState[e.id]; return st && st.statut!=='part' && st.cible; });
     var nbPartants = elevesSrc.length - aReinscrire.length;
-    if(!aReinscrire.length){ alert('Aucun élève à réinscrire (tous marqués « Quitte l\'établissement », ou aucune classe n\'a pu être proposée).'); return; }
+    if(!aReinscrire.length){ showToast('error', 'Aucun élève à réinscrire (tous marqués « Quitte l\'établissement », ou aucune classe n\'a pu être proposée).'); return; }
     if(!confirm('Confirmer le passage de '+aReinscrire.length+' élève(s) vers l\'année active'+(nbPartants?' ('+nbPartants+' ne seront pas réinscrit(s))':'')+' ?\n\nCeci crée de nouvelles fiches élèves dans la nouvelle classe, sans toucher aux anciennes données.')) return;
-    aReinscrire.forEach(function(e){
+    var passagePromises = aReinscrire.map(function(e){
       var nid = uid();
       var copie = { classeId: passageState[e.id].cible, nom:e.nom, prenom:e.prenom, sexe:e.sexe||'', dateNaissance:e.dateNaissance||'', matricule:e.matricule||'', photo:e.photo||'', lieuNaissance:e.lieuNaissance||'', nationalite:e.nationalite||'' };
       cache.eleves.push(Object.assign({id:nid}, copie));
-      dbSet("eleves", nid, copie);
+      return dbSet("eleves", nid, copie);
     });
     logActivite('Passage de classe', aReinscrire.length+' élève(s) de '+(cache.classes.find(function(c){return c.id===classeSrc;})||{}).nom+' vers l\'année active');
     passageState = {}; render();
-    alert(aReinscrire.length+' élève(s) réinscrit(s) avec succès.');
+    Promise.all(passagePromises).then(function(){ showToast('success', aReinscrire.length+' élève(s) réinscrit(s) avec succès.'); }).catch(function(){});
   }
   else if(action === 'consulter-archive'){
     var anneeC = t.dataset.annee, classeC = t.dataset.classe, eleveC = t.dataset.eleve;
@@ -3555,7 +3635,7 @@ document.addEventListener('click', function(e){
       cache.classes.push(Object.assign({id:id}, obj));
       ui.classeFiltre = id; saveUi(); render();
       logActivite('Création classe', obj.nom);
-      dbSet("classes", id, obj);
+      dbSet("classes", id, obj).then(function(){ showToast('success', 'Classe « '+obj.nom+' » créée avec succès !'); }).catch(function(){});
     }
   }
   else if(action === 'add-eleve'){
@@ -3570,7 +3650,7 @@ document.addEventListener('click', function(e){
       cache.eleves.push(Object.assign({id:eid}, obj));
       render();
       logActivite('Création élève', (obj.nom+' '+obj.prenom).trim());
-      dbSet("eleves", eid, obj);
+      dbSet("eleves", eid, obj).then(function(){ showToast('success', 'Élève « '+(obj.nom+' '+obj.prenom).trim()+' » enregistré avec succès !'); }).catch(function(){});
     }
   }
   else if(action === 'add-matiere'){
@@ -3582,7 +3662,7 @@ document.addEventListener('click', function(e){
       cache.matieres.push(Object.assign({id:mid}, obj));
       render();
       logActivite('Création matière', obj.nom);
-      dbSet("matieres", mid, obj);
+      dbSet("matieres", mid, obj).then(function(){ showToast('success', 'Matière « '+obj.nom+' » ajoutée avec succès !'); }).catch(function(){});
     }
   }
   else if(action === 'delete-arm'){ ui.deleteArmed = t.dataset.kind+':'+t.dataset.id; render(); }
@@ -3606,30 +3686,32 @@ document.addEventListener('click', function(e){
       if(ui.classeFiltre===id) ui.classeFiltre = '';
       ui.deleteArmed = ''; saveUi(); render();
       logActivite('Suppression classe', (classeSupprimee&&classeSupprimee.nom)||id);
-      dbDelete("classes", id);
-      orphanEleves.forEach(function(e){ dbDelete("eleves", e.id); });
-      orphanMats.forEach(function(m){ dbDelete("matieres", m.id); });
+      var delClasseP = [dbDelete("classes", id)];
+      orphanEleves.forEach(function(e){ delClasseP.push(dbDelete("eleves", e.id)); });
+      orphanMats.forEach(function(m){ delClasseP.push(dbDelete("matieres", m.id)); });
+      Promise.all(delClasseP).then(function(){ showToast('success', 'Classe « '+((classeSupprimee&&classeSupprimee.nom)||'')+' » supprimée avec succès.'); }).catch(function(){});
     } else if(kind==='eleve'){
       var eleveSupprime = cache.eleves.find(function(e){return e.id===id;});
       cache.eleves = cache.eleves.filter(function(e){return e.id!==id;});
       ui.deleteArmed=''; render();
       logActivite('Suppression élève', eleveSupprime?((eleveSupprime.nom||'')+' '+(eleveSupprime.prenom||'')).trim():id);
-      dbDelete("eleves", id);
+      dbDelete("eleves", id).then(function(){ showToast('success', 'Élève supprimé avec succès.'); }).catch(function(){});
     } else if(kind==='elevesClasse'){
       var classeVidee = cache.classes.find(function(c){return c.id===id;});
       var elevesAVider = cache.eleves.filter(function(e){return e.classeId===id;});
       cache.eleves = cache.eleves.filter(function(e){return e.classeId!==id;});
       ui.deleteArmed=''; render();
       logActivite('Classe vidée', ((classeVidee&&classeVidee.nom)||id)+' ('+elevesAVider.length+' élève(s))');
-      elevesAVider.forEach(function(e){ dbDelete("eleves", e.id); });
+      Promise.all(elevesAVider.map(function(e){ return dbDelete("eleves", e.id); }))
+        .then(function(){ showToast('success', elevesAVider.length+' élève(s) retiré(s) avec succès.'); }).catch(function(){});
     } else if(kind==='matiere'){
       var matiereSupprimee = cache.matieres.find(function(m){return m.id===id;});
       cache.matieres = cache.matieres.filter(function(m){return m.id!==id;});
       ui.deleteArmed=''; render();
       logActivite('Suppression matière', (matiereSupprimee&&matiereSupprimee.nom)||id);
-      dbDelete("matieres", id);
+      dbDelete("matieres", id).then(function(){ showToast('success', 'Matière supprimée avec succès.'); }).catch(function(){});
     } else if(kind==='appelsEvt'){
-      ui.deleteArmed=''; deleteAppelEvt(id); render();
+      ui.deleteArmed=''; deleteAppelEvt(id).then(function(){ showToast('success', 'Appel supprimé avec succès.'); }).catch(function(){}); render();
     }
   }
   else if(action === 'add-utilisateur'){
@@ -3643,11 +3725,12 @@ document.addEventListener('click', function(e){
     callAdminApi('/api/admin-create-user', {identifiant:identifiant, password:password, role:role, nomComplet:nomComplet, etablissementId: etablissementActif})
       .then(function(){
         hintEl.textContent='Compte « '+identifiant+' » créé.';
+        showToast('success', 'Compte « '+identifiant+' » créé avec succès ! Il peut maintenant se connecter.');
         idEl.value=''; pwEl.value=''; nEl2.value='';
         loadProfiles();
         logActivite('Création compte', identifiant+' ('+(ROLES_LABELS[role]||role)+')'); persistPayload();
       })
-      .catch(function(err){ hintEl.textContent='Erreur : '+(err.message||err); })
+      .catch(function(err){ hintEl.textContent='Erreur : '+(err.message||err); showToast('error', 'Compte non créé : '+(err.message||err)); })
       .finally(function(){ btn.disabled=false; });
   }
   else if(action === 'reset-password'){
@@ -3655,10 +3738,10 @@ document.addEventListener('click', function(e){
     var uidTarget=t.dataset.id, identifiantTarget=t.dataset.identifiant;
     var nouveau = prompt('Nouveau mot de passe temporaire pour « '+identifiantTarget+' » (6 caractères minimum) :');
     if(!nouveau) return;
-    if(nouveau.length<6){ alert('Le mot de passe doit contenir au moins 6 caractères.'); return; }
+    if(nouveau.length<6){ showToast('error', 'Le mot de passe doit contenir au moins 6 caractères.'); return; }
     callAdminApi('/api/admin-update-user', {userId:uidTarget, password:nouveau})
-      .then(function(){ alert('Mot de passe réinitialisé pour « '+identifiantTarget+' ».'); logActivite('Réinitialisation mot de passe', identifiantTarget); persistPayload(); })
-      .catch(function(err){ alert('Erreur : '+(err.message||err)); });
+      .then(function(){ showToast('success', 'Mot de passe réinitialisé avec succès pour « '+identifiantTarget+' ».'); logActivite('Réinitialisation mot de passe', identifiantTarget); persistPayload(); })
+      .catch(function(err){ showToast('error', 'Erreur : '+(err.message||err)); });
   }
   else if(action === 'toggle-actif'){
     if(!canManageUsers()) return;
@@ -3667,8 +3750,8 @@ document.addEventListener('click', function(e){
     if(!confirm(confirmMsg)) return;
     var profilCible = cache.profiles.find(function(p){return p.id===uidTarget2;});
     callAdminApi('/api/admin-update-user', {userId:uidTarget2, actif: !actifActuel})
-      .then(function(){ loadProfiles(); logActivite(actifActuel?'Désactivation compte':'Réactivation compte', (profilCible&&profilCible.identifiant)||uidTarget2); persistPayload(); })
-      .catch(function(err){ alert('Erreur : '+(err.message||err)); });
+      .then(function(){ loadProfiles(); logActivite(actifActuel?'Désactivation compte':'Réactivation compte', (profilCible&&profilCible.identifiant)||uidTarget2); persistPayload(); showToast('success', actifActuel ? 'Compte désactivé avec succès.' : 'Compte réactivé avec succès.'); })
+      .catch(function(err){ showToast('error', 'Erreur : '+(err.message||err)); });
   }
   else if(action === 'appel-tout-present'){
     var classeTP=t.dataset.classe, dateTP=t.dataset.date;
@@ -3697,10 +3780,10 @@ document.addEventListener('click', function(e){
       var s = appelMatSaisie[el.id] || {statut:'present',justifiee:false,motif:'',observation:''};
       elevesMap[el.id] = { statut:s.statut||'present', justifiee:!!s.justifiee, motif:s.motif||'', observation:s.observation||'', piece:s.piece||null, justificatifStatut: (cache.appelsEvt[id]&&cache.appelsEvt[id].eleves&&cache.appelsEvt[id].eleves[el.id]&&cache.appelsEvt[id].eleves[el.id].justificatifStatut) || 'en_attente' };
     });
-    setAppelEvt({ id:id, date:date, classeId:classePM, matiere:matiere, heureDebut:hD, heureFin:hF, eleves:elevesMap });
+    var appelSaveP = setAppelEvt({ id:id, date:date, classeId:classePM, matiere:matiere, heureDebut:hD, heureFin:hF, eleves:elevesMap });
     appelMatSaisie = {}; ui.appelMatiereNom=''; ui.appelMatHeureDebut=''; ui.appelMatHeureFin=''; ui.appelMatEditId=''; saveUi();
-    alert('Appel enregistré pour « '+matiere+' » ('+date+', '+hD+'–'+hF+').');
     render();
+    appelSaveP.then(function(){ showToast('success', 'Appel enregistré avec succès pour « '+matiere+' » ('+date+', '+hD+'–'+hF+').'); }).catch(function(){});
   }
   else if(action === 'parmat-charger'){
     var evL = cache.appelsEvt[t.dataset.evt]; if(!evL) return;
@@ -3779,8 +3862,8 @@ document.addEventListener('change', function(e){
         cache.notes = imported.notes && typeof imported.notes==='object' ? imported.notes : {};
         cache.conseil = imported.conseil && typeof imported.conseil==='object' ? imported.conseil : {};
         cache.appels = imported.appels && typeof imported.appels==='object' ? imported.appels : {};
-        await persistPayload(); render(); alert('Import terminé : les données ont été envoyées vers Supabase.');
-      }catch(err){ alert('Import impossible : '+(err.message||err)); }
+        await persistPayload(); render(); showToast('success', 'Import terminé avec succès : les données ont été envoyées vers Supabase.');
+      }catch(err){ showToast('error', 'Import impossible : '+(err.message||err)); }
       t.value='';
     };
     reader.readAsText(t.files[0], 'UTF-8'); return;
@@ -3920,16 +4003,16 @@ document.addEventListener('change', function(e){
     if(!canManageUsers()) return;
     var pid = t.dataset.profilRole, newRole = t.value;
     callAdminApi('/api/admin-update-user', {userId:pid, role:newRole})
-      .then(function(){ loadProfiles(); })
-      .catch(function(err){ alert('Erreur : '+(err.message||err)); loadProfiles(); });
+      .then(function(){ loadProfiles(); showToast('success', 'Rôle modifié avec succès.'); })
+      .catch(function(err){ showToast('error', 'Erreur : '+(err.message||err)); loadProfiles(); });
     return;
   }
   if(t.dataset.profilNom){
     if(!canManageUsers()) return;
     var pid2 = t.dataset.profilNom, nomVal = t.value;
     callAdminApi('/api/admin-update-user', {userId:pid2, nomComplet:nomVal})
-      .then(function(){ loadProfiles(); })
-      .catch(function(err){ alert('Erreur : '+(err.message||err)); });
+      .then(function(){ loadProfiles(); showToast('success', 'Modifications enregistrées avec succès.'); })
+      .catch(function(err){ showToast('error', 'Erreur : '+(err.message||err)); });
     return;
   }
 
