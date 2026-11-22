@@ -1176,7 +1176,16 @@ function dbSetDoc(path,data){ if(path==='config/ecole') cache.school=data; retur
 /* ================= domain helpers (read from cache) ================= */
 function clasesTriees(){ return cache.classes.filter(function(c){ return !cache.anneeActive || c.anneeId===cache.anneeActive; }).slice().sort(function(a,b){ return (a.nom||'').localeCompare(b.nom||'','fr'); }); }
 function elevesDe(classeId){ return cache.eleves.filter(function(e){ return e.classeId===classeId; }).sort(function(a,b){ return ((a.nom||'')+(a.prenom||'')).localeCompare((b.nom||'')+(b.prenom||''),'fr'); }); }
-function matieresDe(classeId){ return cache.matieres.filter(function(m){ return m.classeId===classeId; }).sort(function(a,b){ return (a.nom||'').localeCompare(b.nom||'','fr'); }); }
+function matieresDe(classeId){
+  return cache.matieres.filter(function(m){ return m.classeId===classeId; }).sort(function(a,b){
+    var oa = (a.ordre===undefined||a.ordre===null||a.ordre==='') ? null : parseFloat(a.ordre);
+    var ob = (b.ordre===undefined||b.ordre===null||b.ordre==='') ? null : parseFloat(b.ordre);
+    if(oa!==null && ob!==null && oa!==ob) return oa-ob;
+    if(oa!==null && ob===null) return -1;
+    if(oa===null && ob!==null) return 1;
+    return (a.nom||'').localeCompare(b.nom||'','fr');
+  });
+}
 function classesDeNiveau(niveau){ return cache.classes.filter(function(c){ return c.niveau===niveau && (!cache.anneeActive || c.anneeId===cache.anneeActive); }); }
 function elevesAnneeActive(){ var ids={}; clasesTriees().forEach(function(c){ids[c.id]=true;}); return cache.eleves.filter(function(e){ return ids[e.classeId]; }); }
 function anneeLibelle(anneeId){ var a = (cache.anneesScolaires||[]).find(function(x){return x.id===anneeId;}); return a ? a.libelle : '—'; }
@@ -2493,6 +2502,7 @@ function viewMatieres(){
 
   var rows = liste.map(function(m){
     return '<tr>'
+      + '<td><input type="number" step="1" data-matiere="'+m.id+'" data-field="ordre" value="'+(m.ordre!=null&&m.ordre!==''?esc(String(m.ordre)):'')+'" placeholder="#" style="width:64px"'+dis+'></td>'
       + '<td><input type="text" data-matiere="'+m.id+'" data-field="nom" value="'+esc(m.nom)+'"'+dis+'></td>'
       + '<td><input type="text" data-matiere="'+m.id+'" data-field="enseignant" value="'+esc(m.enseignant)+'" placeholder="Nom de l\'enseignant"'+dis+'></td>'
       + '<td>'+ rowDelete('matiere', m.id) +'</td>'
@@ -2521,7 +2531,7 @@ function viewMatieres(){
     + '<h2>Matières <span class="count">'+liste.length+'</span></h2>'
     + '<div class="row" style="margin-bottom:12px"><div class="field" style="min-width:220px"><label>Filtrer par classe</label><select id="filtreClasseMatieres">'+opts+'</select></div></div>'
     + (classes.length===0 ? '<div class="empty">Créez d\'abord une classe.</div>'
-      : liste.length ? '<div class="table-wrap"><table><thead><tr><th>Matière</th><th>Enseignant</th><th></th></tr></thead><tbody>'+rows+'</tbody></table></div>'
+      : liste.length ? ('<p class="hint" style="margin:0 0 10px">Renseignez un numéro d\'ordre pour afficher les matières dans l\'ordre disciplinaire souhaité (sinon, elles restent triées par ordre alphabétique).</p><div class="table-wrap"><table><thead><tr><th>Ordre</th><th>Matière</th><th>Enseignant</th><th></th></tr></thead><tbody>'+rows+'</tbody></table></div>')
       : '<div class="empty">Aucune matière pour cette classe.</div>')
   + '</div>';
 }
@@ -3861,7 +3871,7 @@ document.addEventListener('change', function(e){
   if(t.dataset.matiere){
     if(!canEditMatieres()) return;
     var m = cache.matieres.find(function(x){return x.id===t.dataset.matiere;});
-    if(m){ var patch3={}; patch3[t.dataset.field]=t.value; m[t.dataset.field]=t.value; dbUpdate("matieres", m.id, patch3); }
+    if(m){ var patch3={}; patch3[t.dataset.field]=t.value; m[t.dataset.field]=t.value; dbUpdate("matieres", m.id, patch3); if(t.dataset.field==='ordre') render(); }
     return;
   }
 
