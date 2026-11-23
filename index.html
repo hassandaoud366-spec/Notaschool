@@ -450,6 +450,13 @@ tr.row-absent{background:var(--warn-soft)}
 .bilan-moy-rouge{color:var(--danger)}
 
 /* ---------- Registre d'appel imprimable ---------- */
+/* Système d'impression adaptatif (registre d'appel + liste de notes, voir plus bas) :
+   la taille de police et le nombre de pages ne sont plus décidés par des paliers fixes
+   (type "plus de 30 élèves = telle taille"), mais calculés en JS à partir d'une vraie
+   mesure du nom le plus long et de la hauteur réelle de l'en-tête/d'une ligne, puis
+   appliqués ici via les variables CSS --appel-pt (taille de police, en pt) et --appel-pad
+   (hauteur de cellule, en mm). Une classe avec un petit effectif et des noms courts garde
+   donc sa présentation normale (10pt), sans aucun rétrécissement artificiel. */
 .appel-register{max-width:none}
 .appel-head{display:grid; grid-template-columns:1.1fr auto 1.1fr; gap:12px; align-items:stretch; margin-bottom:12px}
 .appel-box{border:1px solid var(--line); border-radius:4px; padding:8px 12px}
@@ -462,24 +469,54 @@ tr.row-absent{background:var(--warn-soft)}
 .appel-date-row input{border:1px solid var(--line); background:var(--bg); border-radius:6px; padding:3px 6px; font-size:11.5px; font-family:inherit}
 .appel-jour-row{color:var(--ink-soft)}
 .appel-meta{display:flex; justify-content:space-between; gap:16px; font-size:12.5px; margin-bottom:12px; flex-wrap:wrap}
-.appel-table{font-size:10.5px}
-.appel-table th, .appel-table td{border:1px solid var(--line); padding:4px 5px; text-align:center}
-.appel-table thead th{background:var(--accent-soft); color:var(--accent); white-space:nowrap}
-.appel-table tbody td:nth-child(2){text-align:left; white-space:nowrap}
-.appel-table.appel-noms-tight tbody td:nth-child(2){font-size:.88em}
-.appel-table.appel-noms-xtight tbody td:nth-child(2){font-size:.72em}
-.appel-table tbody td, .appel-table tfoot td{min-width:16px; height:20px}
+/* Spécificité (.appel-register .appel-table) volontairement plus forte que la règle
+   générale ".sheet table{font-size:12.5px}" (bulletins) ci-dessus, qui sinon écraserait
+   silencieusement la police calculée dynamiquement ici. */
+.appel-register .appel-table{font-size:calc(var(--appel-pt, 10.5) * 1pt)}
+.appel-table th, .appel-table td{border:1px solid var(--line); padding:calc(var(--appel-pad, 1.3) * 1mm) 1.1mm; text-align:center}
+/* La règle générale "thead th{font-size:11px}" (ailleurs dans l'appli, pour d'autres
+   tableaux) s'appliquait directement aux <th> et gagnait sur la taille dynamique
+   héritée de .appel-table — invisible à 10pt (tailles proches) mais provoquant un
+   débordement des en-têtes (GENRE, STATUT…) hors de leur colonne dès que la police du
+   corps descendait beaucoup plus bas (ex. 5-6pt pour une grande classe). Les en-têtes
+   suivent maintenant la même taille dynamique que le reste du tableau. */
+.appel-table thead th{background:var(--accent-soft); color:var(--accent); white-space:normal; line-height:1.15; font-size:calc(var(--appel-pt, 10.5) * 1pt)}
+/* La ligne "MATIN / APRÈS-MIDI" a un problème propre : "APRÈS-MIDI" se coupe en
+   "APRÈS-" / "MIDI" et ce mot a besoin de plus de place que "MATIN", mais ses 4 colonnes
+   (contre 5 pour Matin) sont plus étroites — à la taille normale du tableau (10pt), ce mot
+   débordait et chevauchait visuellement la case "MATIN" voisine (constaté sur un PDF
+   réellement généré). Plutôt que de rétrécir les cases à cocher à la main (1 à 9) pour
+   compenser — ce qui les rendrait trop petites pour écrire —, on plafonne UNIQUEMENT la
+   police de cette ligne d'en-tête à 8pt (mesuré par Canvas : à 8pt, "APRÈS-" tient dans ses
+   4 colonnes avec ~0.6mm de marge). Si la police du tableau est déjà plus petite que 8pt
+   (grande classe forcée sur 1 page), elle continue de suivre --appel-pt normalement :
+   min() ne fait que plafonner, jamais agrandir. */
+.appel-table thead tr:nth-child(2) th{font-size:min(calc(var(--appel-pt, 10.5) * 1pt), 8pt)}
+/* GENRE et STATUT (en-têtes de la 1ère ligne) s'écrivent à la verticale (une lettre par
+   ligne) pour que ces colonnes puissent rester très étroites — l'espace ainsi libéré est
+   redonné aux 18 cases d'appel (1 à 9), à la demande explicite du directeur qui les
+   trouvait trop petites pour écrire dedans. word-break:break-all force la coupure entre
+   CHAQUE lettre (un mot plein comme "GENRE" ne se couperait sinon jamais tout seul, faute
+   d'espace dans le mot, et déborderait hors d'une colonne aussi étroite). */
+.appel-table thead tr:nth-child(1) th:nth-child(3),
+.appel-table thead tr:nth-child(1) th:nth-child(5){word-break:break-all}
+/* Toutes les cellules du corps du tableau restent sur une seule ligne : un retour à la
+   ligne dans une colonne étroite (date, statut, etc.) gonflait silencieusement la hauteur
+   de TOUTE la ligne (mesurée par printMesurerBlocs), faussant la pagination dynamique. */
+.appel-table tbody td{white-space:nowrap}
+.appel-table tbody td:nth-child(2){text-align:left}
+.appel-table tbody td, .appel-table tfoot td{min-width:16px}
 .appel-table tfoot td:first-child{text-align:left; font-weight:700; background:var(--gold-soft); white-space:nowrap}
 .appel-nb{font-size:11.5px; color:var(--ink-soft); margin-top:12px}
 .appel-nb ol{margin:4px 0 0; padding-left:18px}
+.appel-pagefoot{font-size:10.5px; color:var(--ink-soft); text-align:right; margin-top:8px}
 .print-only{display:none}
 .appel-date-blank{display:inline-block; border-bottom:1px solid var(--ink); width:60px; height:14px}
 
 @media print{
   @page{ size:A4; margin:12mm; }
   @page appel{ size:A4 portrait; margin:6mm; }
-  @page appel-compact{ size:A4 portrait; margin:5mm; }
-  @page appel-xcompact{ size:A4 portrait; margin:4mm; }
+  @page appel-l{ size:A4 landscape; margin:6mm; }
   .topbar, .tabs, .print-hint, .view-head, .panel, .banner{display:none !important}
   body{background:#fff; -webkit-print-color-adjust:exact; print-color-adjust:exact; color-adjust:exact;}
   main, .content-wrap{padding:0; margin:0; max-width:none}
@@ -495,55 +532,10 @@ tr.row-absent{background:var(--warn-soft)}
   body.print-blocked-bulletin .sheet{display:none !important}
   body.print-blocked-bulletin #printBlockNotice{display:block !important; padding:60px 40px; font-size:16px; text-align:center; color:#000}
   .appel-register{page:appel; padding:10px}
+  .appel-register.appel-paysage{page:appel-l}
   .appel-register .screen-only{display:none !important}
   .appel-register .print-only{display:inline-block !important}
-  .appel-register .appel-table{font-size:9.5px; table-layout:fixed; width:100%}
-  .appel-register .appel-table th, .appel-register .appel-table td{padding:2.5px 3.5px}
-  .appel-register .appel-table thead th{white-space:normal; word-break:break-word; line-height:1.15}
-  .appel-register .appel-table tbody td, .appel-register .appel-table tfoot td{height:6.4mm}
-  .appel-register .appel-head{grid-template-columns:1.25fr auto 1.25fr; gap:8px; margin-bottom:7px}
-  .appel-register .appel-titre{padding-block:3px; font-size:13.5px}
-  .appel-register .appel-box{padding:4px 10px}
-  .appel-register .appel-ecole-nom{font-size:12.5px}
-  .appel-register .appel-ecole-annee{font-size:10px; margin-top:1px}
-  .appel-register .appel-meta{margin-bottom:6px}
-  .appel-register .appel-nb{margin-top:6px; font-size:9px; line-height:1.25}
-  .appel-register .appel-nb ol{margin-top:3px; padding-left:15px}
-  /* Au-delà de 30 élèves, une classe de ce volume ne tient plus sur une
-     page A4 avec les tailles confortables ci-dessus : le JS ajoute alors la
-     classe .appel-compact pour resserrer uniquement ce cas-là (jusqu'à ~48
-     élèves sur 1 page), sans toucher aux classes normales. */
-  .appel-register.appel-compact{page:appel-compact; padding:6px}
-  .appel-register.appel-compact .appel-table{font-size:8px}
-  .appel-register.appel-compact .appel-table th, .appel-register.appel-compact .appel-table td{padding:1.5px 2.5px}
-  .appel-register.appel-compact .appel-table thead th{line-height:1.1}
-  .appel-register.appel-compact .appel-table tbody td, .appel-register.appel-compact .appel-table tfoot td{height:4.6mm}
-  .appel-register.appel-compact .appel-head{gap:6px; margin-bottom:4px}
-  .appel-register.appel-compact .appel-titre{padding-block:1px; font-size:12px}
-  .appel-register.appel-compact .appel-box{padding:2px 8px}
-  .appel-register.appel-compact .appel-ecole-nom{font-size:11px}
-  .appel-register.appel-compact .appel-ecole-annee{font-size:8.5px}
-  .appel-register.appel-compact .appel-meta{margin-bottom:3px}
-  .appel-register.appel-compact .appel-nb{margin-top:3px; font-size:8px; line-height:1.15}
-  .appel-register.appel-compact .appel-nb ol{margin-top:2px; padding-left:13px}
-
-  /* Au-delà de 50 élèves, même le mode .appel-compact ne suffit plus pour tout
-     tenir sur une seule page (tableau + bas de page Matières/Absents/Exclus/
-     Émargement) : le JS ajoute alors .appel-xcompact, encore plus resserré,
-     pour les classes exceptionnellement nombreuses (jusqu'à ~60 élèves). */
-  .appel-register.appel-xcompact{page:appel-xcompact; padding:4px}
-  .appel-register.appel-xcompact .appel-table{font-size:7.2px}
-  .appel-register.appel-xcompact .appel-table th, .appel-register.appel-xcompact .appel-table td{padding:1px 2px}
-  .appel-register.appel-xcompact .appel-table thead th{line-height:1.05}
-  .appel-register.appel-xcompact .appel-table tbody td, .appel-register.appel-xcompact .appel-table tfoot td{height:3.85mm}
-  .appel-register.appel-xcompact .appel-head{gap:4px; margin-bottom:2px}
-  .appel-register.appel-xcompact .appel-titre{padding-block:0px; font-size:10.5px}
-  .appel-register.appel-xcompact .appel-box{padding:1px 6px}
-  .appel-register.appel-xcompact .appel-ecole-nom{font-size:9.5px}
-  .appel-register.appel-xcompact .appel-ecole-annee{font-size:7px}
-  .appel-register.appel-xcompact .appel-meta{margin-bottom:2px; font-size:9.5px}
-  .appel-register.appel-xcompact .appel-nb{margin-top:2px; font-size:6.5px; line-height:1.05}
-  .appel-register.appel-xcompact .appel-nb ol{margin-top:1px; padding-left:11px}
+  .appel-register .appel-table{table-layout:fixed; width:100%}
 
   /* Forcer l'impression des couleurs (sinon certains navigateurs les omettent) */
   * { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
@@ -556,10 +548,7 @@ tr.row-absent{background:var(--warn-soft)}
   .appel-register .appel-table tfoot td:first-child{ text-align:left; font-weight:700; white-space:nowrap }
 
   /* Ligne verticale entre Matin et Après-midi (colonnes 5|6 de chaque jour), et ligne
-     un peu plus épaisse entre Jour 1 et Jour 2 — sur toute la hauteur du tableau.
-     (La ligne Matin/Après-midi est déjà tracée par une vraie bordure de cellule sur
-     la ligne d'en-tête suivante — on n'essaie plus de la reproduire approximativement
-     à l'intérieur de la cellule fusionnée "Jour 1/2", ce qui créait un léger décalage.) */
+     un peu plus épaisse entre Jour 1 et Jour 2 — sur toute la hauteur du tableau. */
   .appel-register .appel-table thead tr:nth-child(1) th:nth-child(6){ border-right:2.2px solid #444 !important }
   .appel-register .appel-table thead tr:nth-child(2) th:nth-child(1){ border-right:2px solid #444 !important }
   .appel-register .appel-table thead tr:nth-child(2) th:nth-child(2){ border-right:2.2px solid #444 !important }
@@ -2682,6 +2671,87 @@ function fmtDevNote(v){
   var n = Math.round(v*100)/100;
   return (n===Math.floor(n)) ? String(n) : String(n).replace(/0+$/,'').replace(/\.$/,'');
 }
+/* ================= Impression adaptative : helpers communs =================
+   Utilisés par le registre d'appel imprimable et la liste de notes imprimable.
+   Principe : au lieu de paliers fixes codés en dur ("plus de 35 élèves = telle
+   police"), on mesure réellement le nom le plus long (via Canvas, comme le fait
+   un vrai moteur de rendu) et la hauteur réelle de l'en-tête / d'une ligne / du
+   pied de page (via une sonde DOM hors écran), puis on calcule la plus grande
+   police entre 8 et 10 pt qui tient sur une seule ligne et le nombre de pages
+   nécessaire pour que rien ne soit coupé. */
+var PRINT_PX_PAR_MM = 96/25.4;
+var PRINT_POLICE = '"Segoe UI",Arial,Helvetica,sans-serif';
+var _printMesureCtx = null;
+
+function printPtVersPx(pt){ return pt * 96 / 72; }
+function printMmVersPx(mm){ return mm * PRINT_PX_PAR_MM; }
+function printPxVersMm(px){ return px / PRINT_PX_PAR_MM; }
+
+function printLargeurTextePx(texte, taillePx, graisse){
+  if(!_printMesureCtx){ var c = document.createElement('canvas'); _printMesureCtx = c.getContext('2d'); }
+  _printMesureCtx.font = (graisse||'600')+' '+taillePx+'px '+PRINT_POLICE;
+  return _printMesureCtx.measureText(String(texte||'')).width;
+}
+
+/* Choisit, par pas de 0.25pt entre 10 et 8, la plus grande taille de police telle que le
+   texte le plus large de `textes` tienne dans `largeurDisponiblePx`. Si même 8pt ne suffit
+   pas, on garde 8pt et on signale les textes encore trop longs plutôt que de les couper. */
+function printChoisirTaillePolice(textes, largeurDisponiblePx){
+  var pireTexte = '', pireRef = -1;
+  (textes||[]).forEach(function(t){
+    var l = printLargeurTextePx(t, 100);
+    if(l > pireRef){ pireRef = l; pireTexte = t; }
+  });
+  var choisie = 8;
+  for(var pt = 10; pt >= 8; pt -= 0.25){
+    if(printLargeurTextePx(pireTexte, printPtVersPx(pt)) <= largeurDisponiblePx){ choisie = pt; break; }
+  }
+  var pxFinal = printPtVersPx(choisie);
+  var nomsProblematiques = (textes||[]).filter(function(t){ return printLargeurTextePx(t, pxFinal) > largeurDisponiblePx; });
+  return { taillePt: choisie, depasse: nomsProblematiques.length>0, nomsProblematiques: nomsProblematiques };
+}
+
+/* Insère réellement `html` dans un conteneur hors écran (visibility:hidden, mais mis en
+   page normalement — contrairement à display:none), lit les hauteurs réelles des éléments
+   correspondant à `selecteurs` via getBoundingClientRect, puis retire le conteneur. Aucune
+   hauteur n'est devinée : c'est le même moteur de rendu que celui qui imprimera le document. */
+function printMesurerBlocs(html, largeurMM, selecteurs){
+  var probe = document.createElement('div');
+  probe.style.cssText = 'position:fixed; left:-9999px; top:0; width:'+largeurMM+'mm; visibility:hidden; pointer-events:none; background:#fff; margin:0; padding:0';
+  probe.innerHTML = html;
+  document.body.appendChild(probe);
+  var out = {};
+  for(var i=0;i<selecteurs.length;i++){
+    var sel = selecteurs[i];
+    var el = probe.querySelector(sel);
+    out[sel] = el ? printPxVersMm(el.getBoundingClientRect().height) : 0;
+  }
+  document.body.removeChild(probe);
+  return out;
+}
+
+/* Répartit `total` lignes sur le moins de pages possible, aussi équitablement que
+   possible, sans jamais dépasser `capaciteDerniere` sur la toute dernière page (qui
+   porte en plus le pied de page / bloc NB). Pas de seuil fixe : tout dépend des
+   capacités réellement mesurées pour CE document précis. */
+function printRepartirPages(total, capacitePageComplete, capaciteDerniere){
+  capacitePageComplete = Math.max(1, Math.floor(capacitePageComplete));
+  capaciteDerniere = Math.max(1, Math.floor(capaciteDerniere));
+  if(total <= capaciteDerniere) return [total];
+  var nPages = Math.ceil(total / capacitePageComplete);
+  var base, reste, garde=0;
+  do{
+    base = Math.floor(total / nPages);
+    reste = total % nPages;
+    if(base <= capaciteDerniere || nPages >= total) break;
+    nPages++;
+    garde++;
+  } while(garde < total);
+  var pages = [];
+  for(var i=0;i<nPages;i++) pages.push(base + (i < reste ? 1 : 0));
+  return pages;
+}
+
 function imprimerListeNotes(classeId, matiereId){
   var classe = cache.classes.find(function(c){return c.id===classeId;});
   var matiere = cache.matieres.find(function(m){return m.id===matiereId;});
@@ -2690,11 +2760,17 @@ function imprimerListeNotes(classeId, matiereId){
   var eleves = elevesDe(classeId);
   var st = statsMatiere(classeId, matiereId, tri);
 
-  var school = cache.school || {};
+  var win = window.open('', '_blank');
+  if(!win){ alert('Autorisez les fenêtres pop-up pour imprimer la liste de notes.'); return; }
+
+  var LARGEUR_MM = 190, MARGE_MM = 10, POURCENT_NOM = 37.0;
+  var colgroupHtml = '<colgroup><col class="col-num"><col class="col-nom"><col class="col-sexe"><col class="col-date"><col class="col-statut"><col class="col-dev"><col class="col-dev"><col class="col-dev"><col class="col-dev"><col class="col-moy"></colgroup>';
+  var theadHtml = '<thead><tr><th>N°</th><th>Nom des élèves</th><th>Sexe</th><th>Date nai</th><th>Statut</th><th>Dev_1</th><th>Dev_2</th><th>Dev_3</th><th>Dev_4</th><th>Moyenne</th></tr></thead>';
   /* Colonnes Devoir et Moyenne volontairement laissées VIERGES (à remplir à la main
      sur le papier) : cette liste sert de feuille à imprimer, pas d'export des notes
-     déjà saisies dans l'application. */
-  var rowsHtml = eleves.map(function(e, idx){
+     déjà saisies dans l'application — aucune valeur de note/moyenne n'est donc
+     affichée ni modifiée ici. */
+  function ligneHtml(e, idx){
     return '<tr>'
       + '<td class="num">'+(idx+1)+'</td>'
       + '<td class="nom">'+esc((e.nom||'').toUpperCase())+' '+esc((e.prenom||'').toUpperCase())+'</td>'
@@ -2704,63 +2780,144 @@ function imprimerListeNotes(classeId, matiereId){
       + '<td></td><td></td><td></td><td></td>'
       + '<td></td>'
     + '</tr>';
-  }).join('');
+  }
 
-  var win = window.open('', '_blank');
-  if(!win){ alert('Autorisez les fenêtres pop-up pour imprimer la liste de notes.'); return; }
-  /* Mise en page compacte selon l'effectif, pour toujours tenir sur une seule page
-     (même logique à 3 paliers que la Liste d'appel). */
-  var compactCls = (eleves.length > 50) ? ' notes-xcompact' : ((eleves.length > 30) ? ' notes-compact' : '');
+  if(eleves.length===0){
+    var htmlVide = '<!doctype html><html lang="fr"><head><meta charset="utf-8"><title>Liste de notes — '+esc(classe.nom)+' — '+esc(matiere.nom)+'</title></head>'
+      + '<body style="font-family:Arial,sans-serif;padding:40px;text-align:center;color:#888">Aucun élève dans cette classe.</body></html>';
+    win.document.write(htmlVide); win.document.close();
+    return;
+  }
+
+  /* 1) Police : on cherche, par pas de 0.1pt en descendant depuis 10pt, la plus grande
+     taille telle que (a) le nom le plus large tienne sur une ligne ET (b) TOUTE la
+     classe tienne sur une seule page — consigne explicite du directeur : toujours 1
+     page, quitte à descendre sous 8pt. On ne s'arrête qu'à un plancher technique de
+     5pt (en dessous, le texte devient vraiment illisible à l'impression)
+     Si même 5pt ne suffit pas (classe très nombreuse), on revient au
+     choix normal (8pt minimum, jamais de nom coupé) et plusieurs pages lisibles plutôt
+     qu'un document inexploitable. */
+  var nomsComplets = eleves.map(function(e){ return ((e.nom||'').toUpperCase()+' '+(e.prenom||'').toUpperCase()).trim(); });
+  var largeurColNomMM = LARGEUR_MM * POURCENT_NOM/100;
+  var largeurColNomPx = printMmVersPx(largeurColNomMM - 3);
+  var idxPlusLong = 0, maxL = -1;
+  nomsComplets.forEach(function(t, i){ var l = printLargeurTextePx(t, 100); if(l>maxL){ maxL=l; idxPlusLong=i; } });
+  var pireTexte = nomsComplets[idxPlusLong];
+  var hauteurUtileMM = (297 - 2*MARGE_MM) * 0.985;
+
+  function calcPaddingNotesMM(pt){ return Math.max(0.12, +(0.45 + 1.05*(pt-8)/2).toFixed(2)); }
+
+  function mesurerNotes(pt){
+    var paddingMM = calcPaddingNotesMM(pt);
+    /* IMPORTANT : la règle générale de l'appli "table{font-size:13px}" (ailleurs, pour les
+       autres tableaux de l'écran) s'applique directement à l'élément <table> de cette sonde
+       — elle aussi insérée dans le document principal pour être mesurée — et une déclaration
+       directe gagne toujours sur une valeur seulement héritée, quelle que soit la spécificité.
+       Sans ce correctif, la sonde restait bloquée à 13px (~9.75pt) quelle que soit la taille
+       réellement demandée, ce qui faussait complètement le calcul de capacité pour les
+       petites tailles (même bug que celui déjà corrigé pour les en-têtes de la liste d'appel). */
+    var styleSonde = '<style>.n-sonde{font-family:'+PRINT_POLICE+'; font-size:'+pt+'pt}'
+      + '.n-sonde table{width:100%; border-collapse:collapse; table-layout:fixed; font-size:'+pt+'pt}'
+      + '.n-sonde th,.n-sonde td{border:1px solid #000; padding:'+paddingMM+'mm 1.3mm; text-align:center; white-space:nowrap}'
+      + '.n-sonde td.nom{text-align:left; font-weight:600}'
+      + '.n-sonde .titre{font-size:'+(pt+4)+'pt; margin-bottom:'+(paddingMM*4)+'mm}'
+      + '.n-sonde .boxes{display:flex; gap:8px; margin-bottom:'+(paddingMM*3)+'mm}'
+      + '.n-sonde .box{border:1px solid #000; border-radius:4px; padding:'+paddingMM+'mm '+(paddingMM*2)+'mm; font-weight:600; font-size:'+(pt+1)+'pt; white-space:nowrap}'
+      + '.n-sonde .foot{margin-top:'+(paddingMM*4)+'mm; font-size:'+(pt-1)+'pt}'
+      + '.n-sonde .pagefoot{margin-top:2mm; font-size:'+(pt-1.5)+'pt}'
+      + '</style>';
+    var sondeHtml = styleSonde + '<div class="n-sonde">'
+      + '<div class="titre">Liste de notes</div>'
+      + '<div class="boxes"><div class="box niveau">Niveau :</div><div class="box matiere">Matière :</div><div class="box trimestre">Trimestre :</div></div>'
+      + '<table>'+colgroupHtml+theadHtml+'<tbody>'+ligneHtml(eleves[idxPlusLong],0)+'</tbody></table>'
+      + '<div class="foot">Document généré automatiquement — '+esc(frDate(todayISO()))+'</div>'
+      + '<div class="pagefoot">Page 1 / 1</div>'
+    + '</div>';
+    var hauteurs = printMesurerBlocs(sondeHtml, LARGEUR_MM, ['.titre','.boxes','thead','tbody tr','.foot','.pagefoot']);
+    var enteteMM = hauteurs['.titre'] + hauteurs['.boxes'] + hauteurs['thead'] + 2;
+    var ligneMM = hauteurs['tbody tr'] || 0.1;
+    var piedDernierePageMM = hauteurs['.foot'] + hauteurs['.pagefoot'] + 2;
+    return {
+      paddingMM: paddingMM,
+      capaComplete: Math.floor((hauteurUtileMM - enteteMM) / ligneMM),
+      capaDerniere: Math.floor((hauteurUtileMM - enteteMM - piedDernierePageMM) / ligneMM)
+    };
+  }
+
+  var PLANCHER_PT_FORCER_UNE_PAGE = 5;
+  var taillePt = null, mesureFinale = null;
+  for(var ptEssai = 10; ptEssai >= PLANCHER_PT_FORCER_UNE_PAGE; ptEssai -= 0.1){
+    var mEssai = mesurerNotes(ptEssai);
+    var nomOk = printLargeurTextePx(pireTexte, printPtVersPx(ptEssai)) <= largeurColNomPx;
+    if(nomOk && mEssai.capaDerniere >= eleves.length){ taillePt = +ptEssai.toFixed(2); mesureFinale = mEssai; break; }
+  }
+  if(taillePt===null){
+    var choixSecours = printChoisirTaillePolice(nomsComplets, largeurColNomPx);
+    taillePt = choixSecours.taillePt;
+    mesureFinale = mesurerNotes(taillePt);
+  }
+  var paddingMM = mesureFinale.paddingMM;
+  var capaComplete = mesureFinale.capaComplete, capaDerniere = mesureFinale.capaDerniere;
+  var repartition = printRepartirPages(eleves.length, capaComplete, capaDerniere);
+  var nPages = repartition.length;
+
+  var pxFinalChoix = printPtVersPx(taillePt);
+  var nomsProblematiquesChoix = nomsComplets.filter(function(t){ return printLargeurTextePx(t, pxFinalChoix) > largeurColNomPx; });
+  var choix = { taillePt: taillePt, depasse: nomsProblematiquesChoix.length>0, nomsProblematiques: nomsProblematiquesChoix };
+
+  /* 3) Construction des pages finales, avec en-tête répété et numérotation Page X / Y. */
+  var pagesHtml = '', curIdx = 0;
+  repartition.forEach(function(nb, pageIdx){
+    var pageEleves = eleves.slice(curIdx, curIdx+nb);
+    var rows = pageEleves.map(function(e,i){ return ligneHtml(e, curIdx+i); }).join('');
+    curIdx += nb;
+    var estDerniere = pageIdx === nPages-1;
+    pagesHtml += '<div class="feuille'+(estDerniere?'':' saut-page')+'">'
+      + '<div class="titre">Liste de notes</div>'
+      + '<div class="boxes">'
+        + '<div class="box niveau">Niveau : '+esc(classe.niveau||classe.nom||'')+'</div>'
+        + '<div class="box matiere">Matière : '+esc(matiere.nom||'')+'</div>'
+        + '<div class="box trimestre">Trimestre : '+esc(String(tri||''))+'</div>'
+      + '</div>'
+      + '<table>'+colgroupHtml+theadHtml+'<tbody>'+rows+'</tbody></table>'
+      + (estDerniere ? '<div class="foot">Document généré automatiquement — '+esc(frDate(todayISO()))+'</div>' : '')
+      + (nPages>1 ? '<div class="pagefoot">Page '+(pageIdx+1)+' / '+nPages+'</div>' : '')
+    + '</div>';
+  });
+
   var html = '<!doctype html><html lang="fr"><head><meta charset="utf-8"><title>Liste de notes — '+esc(classe.nom)+' — '+esc(matiere.nom)+'</title>'
     + '<style>'
-    + '@page{size:A4 portrait; margin:14mm 12mm}'
-    + '@page notes-compact{size:A4 portrait; margin:9mm 10mm}'
-    + '@page notes-xcompact{size:A4 portrait; margin:5mm 8mm}'
+    + '@page{size:A4 portrait; margin:'+MARGE_MM+'mm}'
     + '*{box-sizing:border-box}'
-    + 'body{font-family:"Segoe UI",Arial,Helvetica,sans-serif;color:#000;margin:0;padding:14px 18px;font-size:11px}'
-    + 'body.notes-compact{page:notes-compact; padding:8px 10px; font-size:9.5px}'
-    + 'body.notes-xcompact{page:notes-xcompact; padding:4px 6px; font-size:8px}'
-    + '.titre{text-align:center;font-size:15px;font-weight:600;margin:0 0 10px}'
-    + 'body.notes-compact .titre{font-size:12.5px;margin-bottom:6px}'
-    + 'body.notes-xcompact .titre{font-size:10.5px;margin-bottom:3px}'
-    + '.boxes{display:flex;gap:10px;margin-bottom:12px}'
-    + 'body.notes-compact .boxes{margin-bottom:7px}'
-    + 'body.notes-xcompact .boxes{gap:6px;margin-bottom:4px}'
-    + '.box{border:1px solid #000;border-radius:4px;padding:7px 12px;font-weight:600;font-size:12px;white-space:nowrap}'
-    + 'body.notes-compact .box{padding:4px 9px;font-size:10px}'
-    + 'body.notes-xcompact .box{padding:2px 7px;font-size:8.5px;border-radius:3px}'
-    + '.box.niveau{flex:1}'
-    + '.box.matiere{flex:1.6}'
-    + '.box.trimestre{flex:1}'
-    + 'table{width:100%;border-collapse:collapse;font-size:10.5px}'
-    + 'body.notes-compact table{font-size:9px}'
-    + 'body.notes-xcompact table{font-size:7.3px}'
+    + 'body{font-family:'+PRINT_POLICE+';color:#000;margin:0;padding:0}'
+    + '.feuille{font-size:'+taillePt+'pt}'
+    + '.feuille.saut-page{page-break-after:always}'
+    + '.titre{text-align:center;font-size:'+(taillePt+4)+'pt;font-weight:600;margin:0 0 '+(paddingMM*4)+'mm}'
+    + '.boxes{display:flex;gap:10px;margin-bottom:'+(paddingMM*3)+'mm}'
+    + '.box{border:1px solid #000;border-radius:4px;padding:'+paddingMM+'mm '+(paddingMM*2)+'mm;font-weight:600;font-size:'+(taillePt+1)+'pt;white-space:nowrap}'
+    + '.box.niveau{flex:1}.box.matiere{flex:1.6}.box.trimestre{flex:1}'
+    + 'table{width:100%;border-collapse:collapse;font-size:'+taillePt+'pt}'
     + 'thead{display:table-header-group}'
-    + 'tr{break-inside:avoid; page-break-inside:avoid}'
-    + 'th{background:#dde6f2;color:#000;padding:6px 7px;text-align:center;font-weight:700;border:1px solid #000}'
-    + 'body.notes-compact th{padding:4px 5px}'
-    + 'body.notes-xcompact th{padding:2px 3px;line-height:1.1}'
-    + 'col.col-num{width:4%}col.col-nom{width:27%}col.col-sexe{width:6%}col.col-date{width:12%}col.col-statut{width:7%}col.col-dev{width:7.2%}col.col-moy{width:9%}'
-    + 'td{padding:5px 7px;border:1px solid #000;text-align:center;vertical-align:middle;height:22px}'
-    + 'body.notes-compact td{padding:3px 5px;height:16px}'
-    + 'body.notes-xcompact td{padding:1px 3px;height:11px}'
+    + 'tr{break-inside:avoid;page-break-inside:avoid}'
+    + 'th{background:#dde6f2;color:#000;padding:'+paddingMM+'mm 1.3mm;text-align:center;font-weight:700;border:1px solid #000}'
+    /* Largeurs de colonnes revérifiées par mesure réelle (Canvas, même police/graisse
+       qu'à l'impression) après avoir constaté sur un PDF réellement généré que plusieurs
+       en-têtes débordaient de leur colonne : "Sexe", "Statut", "Dev_1" et surtout
+       "Moyenne" avaient besoin de plus de place que ce que les pourcentages d'origine
+       offraient (ex. "Moyenne" ~16mm nécessaires contre ~12,8mm utiles). "Date nai" a
+       aussi été élargie (la DONNÉE "JJ-MM-AAAA" a besoin d'~19mm). Espace repris sur la
+       colonne "Nom des élèves" (37% au lieu de 40% — marge réduite mais toujours
+       suffisante, vérifiée, pour les noms à rallonge) et sur N° (surdimensionnée pour
+       un numéro à 2 chiffres). */
+    + 'col.col-num{width:3.7%}col.col-nom{width:37.0%}col.col-sexe{width:6.2%}col.col-date{width:11.3%}col.col-statut{width:7.3%}col.col-dev{width:6.2%}col.col-moy{width:10.0%}'
+    + 'td{padding:'+paddingMM+'mm 1.3mm;border:1px solid #000;text-align:center;vertical-align:middle;white-space:nowrap}'
     + 'td.nom{text-align:left;font-weight:600}'
-    + 'td.date{white-space:nowrap}'
-    + '.foot{margin-top:14px;font-size:10px;color:#555;text-align:right}'
-    + 'body.notes-compact .foot{margin-top:7px;font-size:8.5px}'
-    + 'body.notes-xcompact .foot{margin-top:3px;font-size:7px}'
-    + '@media print{body{padding:0 4mm}}'
-    + '</style></head><body class="'+compactCls.trim()+'">'
-    + '<div class="titre">Liste de notes</div>'
-    + '<div class="boxes">'
-      + '<div class="box niveau">Niveau :</div>'
-      + '<div class="box matiere">Matière :</div>'
-      + '<div class="box trimestre">Trimestre :</div>'
-    + '</div>'
-    + '<table><colgroup><col class="col-num"><col class="col-nom"><col class="col-sexe"><col class="col-date"><col class="col-statut"><col class="col-dev"><col class="col-dev"><col class="col-dev"><col class="col-dev"><col class="col-moy"></colgroup>'
-    + '<thead><tr><th>N°</th><th>Nom des élèves</th><th>Sexe</th><th>Date nai</th><th>Statut</th><th>Dev_1</th><th>Dev_2</th><th>Dev_3</th><th>Dev_4</th><th>Moyenne</th></tr></thead>'
-    + '<tbody>'+(rowsHtml || '<tr><td colspan="10" style="text-align:center;color:#888">Aucun élève dans cette classe.</td></tr>')+'</tbody></table>'
-    + '<div class="foot">Document généré automatiquement — '+esc(frDate(todayISO()))+'</div>'
+    + '.foot{margin-top:'+(paddingMM*4)+'mm;font-size:'+(taillePt-1)+'pt;color:#555;text-align:right}'
+    + '.pagefoot{margin-top:2mm;font-size:'+(taillePt-1.5)+'pt;color:#555;text-align:right}'
+    + '@media print{body{padding:0}}'
+    + '</style></head><body>'
+    + pagesHtml
+    + (choix.depasse ? '<p style="color:#b00;font-size:10px;text-align:center">Attention : certains noms restent trop longs pour tenir sur une seule ligne même à 8pt ('+choix.nomsProblematiques.map(function(n){return esc(n);}).join(', ')+').</p>' : '')
     + '</body></html>';
   win.document.write(html); win.document.close();
   win.onload = function(){ win.focus(); win.print(); };
@@ -2792,7 +2949,7 @@ function viewAppels(){
 
   if(mode==='registre'){
     return head
-      + '<div class="print-hint"><svg viewBox="0 0 24 24" fill="none"><path d="M6 9V3h12v6M6 18H4a1 1 0 0 1-1-1v-6a1 1 0 0 1 1-1h16a1 1 0 0 1 1 1v6a1 1 0 0 1-1 1h-2M6 14h12v7H6z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></svg><span>Le registre s\'imprime en portrait (vertical). La date, les colonnes horaires et les lignes du bas sont à remplir à la main — si la classe est nombreuse, l\'impression se poursuit automatiquement sur une ou plusieurs pages supplémentaires. <strong class="mono">Ctrl+P</strong> / <strong class="mono">Cmd+P</strong> pour imprimer.</span></div>'
+      + '<div class="print-hint"><svg viewBox="0 0 24 24" fill="none"><path d="M6 9V3h12v6M6 18H4a1 1 0 0 1-1-1v-6a1 1 0 0 1 1-1h16a1 1 0 0 1 1 1v6a1 1 0 0 1-1 1h-2M6 14h12v7H6z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></svg><span>Le registre s\'imprime en portrait (vertical). La date, les colonnes horaires et les lignes du bas sont à remplir à la main. La police et le nombre de pages s\'ajustent automatiquement selon l\'effectif et la longueur des noms (toujours lisible, jamais coupé) — l\'aperçu ci-dessous montre déjà le nombre de pages réel. <strong class="mono">Ctrl+P</strong> / <strong class="mono">Cmd+P</strong> pour imprimer.</span></div>'
       + renderAppelRegistre(classeId, eleves);
   }
 
@@ -2985,14 +3142,73 @@ function renderAppelParMatiere(classeId, eleves){
 function renderAppelRegistre(classeId, eleves){
   var dis = (writeGuardOkDonnees() && canEditAppels()) ? '' : ' disabled';
   var classe = cache.classes.find(function(c){ return c.id===classeId; }) || {nom:"—", professeurPrincipal:""};
-  var school = cache.school;
+  var school = cache.school || {};
   var jour1 = ui.appelJour1 || ''; // laissé vide : la date est écrite à la main sur le registre imprimé
   var jour2 = ui.appelJour2 || '';
 
   var periodsHead = '<th>1</th><th>2</th><th>3</th><th>4</th><th>5</th><th>6</th><th>7</th><th>8</th><th>9</th>';
   var blankCells9 = '<td></td><td></td><td></td><td></td><td></td><td></td><td></td><td></td><td></td>';
+  /* Colonne "Noms des élèves" à 33.14% : laisse de la place pour une identité à 4, 5 ou
+     même 6 prénoms (ex. "Mohamed Abdallah Ibrahim Hassan Daoud") avant d'atteindre la
+     limite physique du registre, sans rien retirer à l'information affichée.
+     "Date naiss" (deux mots, peut se couper sur 2 lignes dans l'en-tête) n'a pas de
+     problème pour l'en-tête, mais la DONNÉE "JJ-MM-AAAA" (chiffres tabulaires .tabnum,
+     police monospace plus large) a besoin d'environ 21mm — d'où 11.5%.
+     GENRE et STATUT s'écrivent à la VERTICALE (une lettre par ligne, cf. ".appel-table
+     thead tr:nth-child(1) th:nth-child(3), …:nth-child(5)" plus bas) plutôt qu'à
+     l'horizontale : demande explicite du directeur, pour libérer de la place sur les 18
+     cases d'appel sans toucher à la colonne "Noms des élèves". Mesure réelle (Canvas) :
+     la lettre la plus large de GENRE/STATUT ("N"/"A") ne dépasse pas 2.7mm à 10pt ; 2.8%
+     (~5.5mm) laisse une bonne marge pour CE seul caractère, même si le mot entier
+     ("GENRE", "STATUT") ne tiendrait plus du tout sur une ligne horizontale dans une
+     colonne aussi étroite.
+     Les 18 colonnes horaires (cases où l'enseignant écrit à la main présent/absent) sont
+     à 2.564% chacune (~5.08mm à 198mm de large, demande explicite du directeur — d'abord
+     3.37mm à l'origine, puis 3.9mm). Un essai à 6mm (3.030%, en reprenant de l'espace sur
+     "Noms des élèves", 33.14%→24.76%) a été testé et REJETÉ : revérifié sur des
+     scénarios réels de 12 à 80 élèves, il cassait la règle "jamais de nom coupé même à
+     8pt" dès 12-25 élèves à noms longs ET la règle "toujours 1 page" pour une classe de
+     55 — exactement le même type de compromis qu'un essai encore antérieur à 5-6mm.
+     2.564% (~5.08mm) reste donc la valeur la plus haute qui NE casse aucune des deux
+     règles ; la limite de capacité "toujours 1 page" est d'environ 60 élèves pour le
+     registre d'appel (au-delà, retour à plusieurs pages lisibles plutôt qu'une police
+     illisible sous 5pt).
+     (Bug corrigé au passage : une édition précédente n'avait mis à jour que les 9
+     colonnes horaires du Jour 1, laissant par erreur celles du Jour 2 à l'ancienne
+     largeur de 3.9mm — les 18 colonnes sont maintenant bien identiques.)
+     Le débordement du mot "APRÈS-MIDI" (qui se coupe en "APRÈS-" / "MIDI") sur la case
+     "MATIN" voisine, visible sur un PDF réellement généré, est corrigé séparément : voir
+     la règle CSS ".appel-table thead tr:nth-child(2) th" plus bas, qui plafonne la taille
+     de police de CETTE seule ligne d'en-tête (Matin/Après-midi) à 8pt maximum, sans
+     toucher à la taille du reste du tableau ni à la largeur des colonnes. */
+  var colgroupHtml = '<colgroup>'
+      + '<col style="width:3.6%"><col style="width:33.14%"><col style="width:2.8%"><col style="width:11.5%"><col style="width:2.8%">'
+      + '<col style="width:2.564%"><col style="width:2.564%"><col style="width:2.564%"><col style="width:2.564%"><col style="width:2.564%">'
+      + '<col style="width:2.564%"><col style="width:2.564%"><col style="width:2.564%"><col style="width:2.564%">'
+      + '<col style="width:2.564%"><col style="width:2.564%"><col style="width:2.564%"><col style="width:2.564%"><col style="width:2.564%">'
+      + '<col style="width:2.564%"><col style="width:2.564%"><col style="width:2.564%"><col style="width:2.564%">'
+    + '</colgroup>';
+  var theadHtml = '<thead>'
+      + '<tr><th rowspan="3">N°</th><th rowspan="3">Noms des élèves</th><th rowspan="3">Genre</th><th rowspan="3">Date naiss</th><th rowspan="3">Statut</th><th colspan="9">Jour 1</th><th colspan="9">Jour 2</th></tr>'
+      + '<tr><th colspan="5">Matin</th><th colspan="4">Après-midi</th><th colspan="5">Matin</th><th colspan="4">Après-midi</th></tr>'
+      + '<tr>'+periodsHead+periodsHead+'</tr>'
+    + '</thead>';
+  var tfootHtml = '<tfoot>'
+      + '<tr><td colspan="5">Matières</td>'+blankCells9+blankCells9+'</tr>'
+      + '<tr><td colspan="5">Nombres d\'absents</td>'+blankCells9+blankCells9+'</tr>'
+      + '<tr><td colspan="5">Exclus</td>'+blankCells9+blankCells9+'</tr>'
+      + '<tr><td colspan="5">Émargement du professeur</td>'+blankCells9+blankCells9+'</tr>'
+    + '</tfoot>';
+  var nbHtml = '<div class="appel-nb">'
+      + '<strong>NB :</strong>'
+      + '<ol>'
+        + '<li>Prière de faire l\'appel en début de cours.</li>'
+        + '<li>Prière de porter (abs) pour les absences et (ex) pour tout élève exclu du cours.</li>'
+        + '<li>Veuillez remettre la liste des élèves renvoyés à la surveillance, accompagnée du chef de classe.</li>'
+      + '</ol>'
+    + '</div>';
 
-  var rows = eleves.map(function(e, idx){
+  function ligneHtml(e, idx){
     return '<tr>'
       + '<td class="num tabnum">'+(idx+1)+'</td>'
       + '<td style="text-align:left">'+esc((e.nom||'').toUpperCase())+' '+esc((e.prenom||'').toUpperCase())+'</td>'
@@ -3001,24 +3217,10 @@ function renderAppelRegistre(classeId, eleves){
       + '<td class="num">NR</td>'
       + blankCells9 + blankCells9
     + '</tr>';
-  }).join('');
+  }
 
-  /* La colonne "Noms des élèves" garde sa taille normale tant que les noms restent
-     de longueur courante. Elle ne se réduit que si un ou plusieurs élèves de CETTE
-     classe ont un nom+prénom complet particulièrement long (rare, mais arrive avec
-     des noms composés) — et non simplement parce que l'effectif est élevé : une
-     petite classe avec des noms courts reste donc toujours affichée en taille
-     normale, et une grande classe avec des noms courts aussi. */
-  var maxNomLen = eleves.reduce(function(max, e){
-    var len = (((e.nom||'')+' '+(e.prenom||'')).trim()).length;
-    return len > max ? len : max;
-  }, 0);
-  var nomSizeCls = maxNomLen > 32 ? ' appel-noms-xtight' : (maxNomLen > 24 ? ' appel-noms-tight' : '');
-
-  var appelCompactCls = (eleves.length > 50) ? ' appel-xcompact' : ((eleves.length > 30) ? ' appel-compact' : '');
-  return ''
-  + '<div class="sheet appel-register'+appelCompactCls+'">'
-    + '<div class="appel-head">'
+  function headBlockHtml(){
+    return '<div class="appel-head">'
       + '<div class="appel-box appel-ecole">'
         + '<div class="appel-ecole-nom">'+esc((school.nom||'Établissement scolaire').toUpperCase())+'</div>'
         + '<div class="appel-ecole-annee">Année scolaire '+esc(school.anneeScolaire||'—')+'</div>'
@@ -3038,37 +3240,113 @@ function renderAppelRegistre(classeId, eleves){
     + '<div class="appel-meta">'
       + '<div>Professeur principal : <strong>'+esc(classe.professeurPrincipal || '—')+'</strong></div>'
       + '<div>Classe <strong>'+esc(classe.nom)+'</strong></div>'
-    + '</div>'
-    + '<div class="table-wrap"><table class="appel-table'+nomSizeCls+'">'
-      + '<colgroup>'
-        + '<col style="width:3.608%"><col style="width:23.0%"><col style="width:4.2%"><col style="width:9.0%"><col style="width:4.5%">'
-        + '<col style="width:3.093%"><col style="width:3.093%"><col style="width:3.093%"><col style="width:3.093%"><col style="width:3.093%">'
-        + '<col style="width:3.093%"><col style="width:3.093%"><col style="width:3.093%"><col style="width:3.093%">'
-        + '<col style="width:3.093%"><col style="width:3.093%"><col style="width:3.093%"><col style="width:3.093%"><col style="width:3.093%">'
-        + '<col style="width:3.093%"><col style="width:3.093%"><col style="width:3.093%"><col style="width:3.093%">'
-      + '</colgroup>'
-      + '<thead>'
-        + '<tr><th rowspan="3">N°</th><th rowspan="3">Noms des élèves</th><th rowspan="3">Genre</th><th rowspan="3">Date naiss</th><th rowspan="3">Statut</th><th colspan="9">Jour 1</th><th colspan="9">Jour 2</th></tr>'
-        + '<tr><th colspan="5">Matin</th><th colspan="4">Après-midi</th><th colspan="5">Matin</th><th colspan="4">Après-midi</th></tr>'
-        + '<tr>'+periodsHead+periodsHead+'</tr>'
-      + '</thead>'
-      + '<tbody>'+rows+'</tbody>'
-      + '<tfoot>'
-        + '<tr><td colspan="5">Matières</td>'+blankCells9+blankCells9+'</tr>'
-        + '<tr><td colspan="5">Nombres d\'absents</td>'+blankCells9+blankCells9+'</tr>'
-        + '<tr><td colspan="5">Exclus</td>'+blankCells9+blankCells9+'</tr>'
-        + '<tr><td colspan="5">Émargement du professeur</td>'+blankCells9+blankCells9+'</tr>'
-      + '</tfoot>'
-    + '</table></div>'
-    + '<div class="appel-nb">'
-      + '<strong>NB :</strong>'
-      + '<ol>'
-        + '<li>Prière de faire l\'appel en début de cours.</li>'
-        + '<li>Prière de porter (abs) pour les absences et (ex) pour tout élève exclu du cours.</li>'
-        + '<li>Veuillez remettre la liste des élèves renvoyés à la surveillance, accompagnée du chef de classe.</li>'
-      + '</ol>'
-    + '</div>'
-  + '</div>';
+    + '</div>';
+  }
+
+  if(eleves.length===0){
+    return '<div class="sheet appel-register">'+headBlockHtml()+'<div class="empty">Aucun élève dans cette classe.</div></div>';
+  }
+
+  var LARGEUR_MM = 198, MARGE_MM = 6, POURCENT_NOM = 33.14;
+
+  /* 1) Police : on cherche, par pas de 0.1pt en descendant depuis 10pt, la plus grande
+     taille telle que (a) le nom le plus large tienne sur une ligne ET (b) TOUTE la
+     classe tienne sur une seule page — consigne explicite du directeur : toujours 1
+     page, quitte à descendre sous 8pt. Plancher technique à 5pt (lisibilité minimale) ; si même 5pt ne suffit
+     pas (très grand effectif), on revient au choix normal (8pt minimum, jamais de nom
+     coupé) et plusieurs pages lisibles plutôt qu'un document inexploitable. */
+  var nomsComplets = eleves.map(function(e){ return ((e.nom||'').toUpperCase()+' '+(e.prenom||'').toUpperCase()).trim(); });
+  var largeurColNomMM = LARGEUR_MM * POURCENT_NOM/100;
+  var largeurColNomPx = printMmVersPx(largeurColNomMM - 2.2);
+  var idxPlusLong = 0, maxL = -1;
+  nomsComplets.forEach(function(t, i){ var l = printLargeurTextePx(t, 100); if(l>maxL){ maxL=l; idxPlusLong=i; } });
+  var pireTexte = nomsComplets[idxPlusLong];
+  var hauteurUtileMM = (297 - 2*MARGE_MM) * 0.985;
+
+  function calcPaddingAppelMM(pt){ return Math.max(0.12, +(0.35 + 0.95*(pt-8)/2).toFixed(2)); }
+
+  function mesurerAppel(pt){
+    var paddingMM = calcPaddingAppelMM(pt);
+    var styleSonde = '<style>'
+      + '.a-sonde{font-family:'+PRINT_POLICE+'}'
+      + '.a-sonde table{width:100%; border-collapse:collapse; table-layout:fixed; font-size:'+pt+'pt}'
+      + '.a-sonde th, .a-sonde td{border:1px solid #000; padding:'+paddingMM+'mm 1.1mm; text-align:center}'
+      + '.a-sonde tbody td{white-space:nowrap}'
+      + '.a-sonde td:nth-child(2){text-align:left}'
+      + '.a-sonde thead th{white-space:normal; line-height:1.15}'
+      + '.a-sonde thead tr:nth-child(2) th{font-size:min('+pt+'pt, 8pt)}'
+      + '.a-sonde thead tr:nth-child(1) th:nth-child(3), .a-sonde thead tr:nth-child(1) th:nth-child(5){word-break:break-all}'
+      + '.a-sonde .appel-head{display:grid; grid-template-columns:1.1fr auto 1.1fr; gap:8px; margin-bottom:6px; font-size:12px}'
+      + '.a-sonde .appel-box{border:1px solid #000; border-radius:4px; padding:4px 10px}'
+      + '.a-sonde .appel-meta{display:flex; justify-content:space-between; gap:12px; margin-bottom:6px; font-size:11px}'
+      + '.a-sonde .appel-nb{margin-top:6px; font-size:10px}'
+      + '.a-sonde .appel-pagefoot{margin-top:6px; font-size:9.5px}'
+      + '</style>';
+    var sondeHtml = styleSonde + '<div class="a-sonde">'
+      + headBlockHtml()
+      + '<table>'+colgroupHtml+theadHtml+'<tbody>'+ligneHtml(eleves[idxPlusLong],0)+'</tbody>'+tfootHtml+'</table>'
+      + nbHtml
+      + '<div class="appel-pagefoot">Page 1 / 1</div>'
+    + '</div>';
+    var hauteurs = printMesurerBlocs(sondeHtml, LARGEUR_MM, ['.appel-head','.appel-meta','thead','tbody tr','tfoot','.appel-nb','.appel-pagefoot']);
+    var enteteMM = hauteurs['.appel-head'] + hauteurs['.appel-meta'] + hauteurs['thead'] + hauteurs['.appel-pagefoot'] + 2;
+    var ligneMM = hauteurs['tbody tr'] || 0.1;
+    var piedDernierePageMM = hauteurs['tfoot'] + hauteurs['.appel-nb'] + 2;
+    return {
+      paddingMM: paddingMM,
+      capaComplete: Math.floor((hauteurUtileMM - enteteMM) / ligneMM),
+      capaDerniere: Math.floor((hauteurUtileMM - enteteMM - piedDernierePageMM) / ligneMM)
+    };
+  }
+
+  var PLANCHER_PT_FORCER_UNE_PAGE = 5;
+  var taillePt = null, mesureFinale = null;
+  for(var ptEssai = 10; ptEssai >= PLANCHER_PT_FORCER_UNE_PAGE; ptEssai -= 0.1){
+    var mEssai = mesurerAppel(ptEssai);
+    var nomOk = printLargeurTextePx(pireTexte, printPtVersPx(ptEssai)) <= largeurColNomPx;
+    if(nomOk && mEssai.capaDerniere >= eleves.length){ taillePt = +ptEssai.toFixed(2); mesureFinale = mEssai; break; }
+  }
+  if(taillePt===null){
+    var choixSecours = printChoisirTaillePolice(nomsComplets, largeurColNomPx);
+    taillePt = choixSecours.taillePt;
+    mesureFinale = mesurerAppel(taillePt);
+  }
+  var paddingMM = mesureFinale.paddingMM;
+  var capaComplete = mesureFinale.capaComplete, capaDerniere = mesureFinale.capaDerniere;
+
+  var repartition = printRepartirPages(eleves.length, capaComplete, capaDerniere);
+  var nPages = repartition.length;
+
+  var pxFinalChoix = printPtVersPx(taillePt);
+  var nomsProblematiquesChoix = nomsComplets.filter(function(t){ return printLargeurTextePx(t, pxFinalChoix) > largeurColNomPx; });
+  var choix = { taillePt: taillePt, depasse: nomsProblematiquesChoix.length>0, nomsProblematiques: nomsProblematiquesChoix };
+
+  /* 3) Construction des pages finales : en-tête + en-tête de tableau répétés sur
+     chaque page, pied administratif (Matières/Absents/Exclus/Émargement + NB)
+     uniquement sur la dernière, et numérotation "Page X / Y" dès que nPages > 1. */
+  var sheets = [], curIdx = 0;
+  repartition.forEach(function(nb, pageIdx){
+    var pageEleves = eleves.slice(curIdx, curIdx+nb);
+    var rows = pageEleves.map(function(e,i){ return ligneHtml(e, curIdx+i); }).join('');
+    curIdx += nb;
+    var estDerniere = (pageIdx === nPages-1);
+    sheets.push(
+      '<div class="sheet appel-register" style="--appel-pt:'+taillePt+'; --appel-pad:'+paddingMM+'">'
+      + headBlockHtml()
+      + '<div class="table-wrap"><table class="appel-table">'+colgroupHtml+theadHtml+'<tbody>'+rows+'</tbody>'
+        + (estDerniere ? tfootHtml : '')
+      + '</table></div>'
+      + (estDerniere ? nbHtml : '')
+      + (nPages>1 ? '<div class="appel-pagefoot">Page '+(pageIdx+1)+' / '+nPages+'</div>' : '')
+      + '</div>'
+    );
+  });
+
+  var avertissement = choix.depasse
+    ? '<div class="banner banner-warn">Certains noms restent trop longs pour tenir sur une seule ligne même à 8 pt ('+choix.nomsProblematiques.map(function(n){return esc(n);}).join(', ')+') : vérifiez l\'affichage avant impression.</div>'
+    : '';
+
+  return avertissement + sheets.join('');
 }
 
 /* ================= view: historique détaillé des absences ================= */
