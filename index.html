@@ -1471,44 +1471,15 @@ function moyenne(valeurs){ if(!valeurs || valeurs.length===0) return null; var p
 function round2(n){ return Math.round(n*100)/100; }
 function fmt(n){ return n==null ? "—" : round2(n).toFixed(2); }
 
-/* Appréciations automatiques par matière et appréciation globale du conseil,
-   barème demandé par le directeur (sur 20, borne basse incluse, un jeu de
-   formulations différent par trimestre). Tout est en MAJUSCULES par consigne
-   explicite. Rien ici ne touche aux notes, moyennes, rangs ni à leur calcul :
-   ces fonctions ne font QUE proposer un texte (affiché en "placeholder" ou en
-   repli si la case appréciation est vide), exactement comme le faisait déjà
-   l'ancienne fonction suggestAppreciation() qu'elles remplacent. */
-var TABLE_APPRECIATION_MATIERE = {
-  1: [[18,"EXCELLENT TRAVAIL, FÉLICITATIONS"],[16,"TRÈS BON TRAVAIL"],[14,"BON TRAVAIL"],
-      [12,"TRAVAIL SATISFAISANT"],[10,"PEUT MIEUX FAIRE"],[8,"TRAVAIL INSUFFISANT"],
-      [0,"TRAVAIL TRÈS INSUFFISANT"]],
-  2: [[18,"EXCELLENTS RÉSULTATS, BRAVO"],[16,"TRÈS BONS RÉSULTATS"],[14,"BONS RÉSULTATS"],
-      [12,"RÉSULTATS SATISFAISANTS"],[10,"RÉSULTATS MOYENS"],[8,"RÉSULTATS INSUFFISANTS"],
-      [0,"RÉSULTATS TRÈS FAIBLES"]],
-  3: [[18,"TRAVAIL REMARQUABLE, FÉLICITATIONS"],[16,"TRÈS BIEN, CONTINUEZ AINSI"],[14,"BIEN, CONTINUEZ VOS EFFORTS"],
-      [12,"ASSEZ BIEN, PERSÉVÉREZ"],[10,"DES EFFORTS À FOURNIR"],[8,"DOIT TRAVAILLER DAVANTAGE"],
-      [0,"DOIT SE RESSAISIR"]]
-};
-var TABLE_APPRECIATION_GLOBALE = {
-  1: [[18,"FÉLICITATIONS DU CONSEIL DE CLASSE"],[16,"TABLEAU D'HONNEUR"],[14,"COMPLIMENTS DU CONSEIL"],
-      [12,"ENCOURAGEMENTS DU CONSEIL"],[10,"RÉSULTATS MOYENS, PEUT MIEUX FAIRE"],[8,"AVERTISSEMENT TRAVAIL"],
-      [0,"BLÂME"]],
-  2: [[18,"EXCELLENTS RÉSULTATS, FÉLICITATIONS"],[16,"TRÈS BONS RÉSULTATS, TABLEAU D'HONNEUR"],[14,"BONS RÉSULTATS, COMPLIMENTS"],
-      [12,"ENSEMBLE SATISFAISANT, ENCOURAGEMENTS"],[10,"ENSEMBLE PASSABLE, DES EFFORTS À FOURNIR"],[8,"RÉSULTATS INSUFFISANTS, AVERTISSEMENT"],
-      [0,"RÉSULTATS TRÈS INSUFFISANTS, BLÂME"]],
-  3: [[18,"ÉLÈVE BRILLANT(E), FÉLICITATIONS"],[16,"TRÈS BON ENSEMBLE, CONTINUEZ AINSI"],[14,"BON ENSEMBLE, CONTINUEZ VOS EFFORTS"],
-      [12,"RÉSULTATS CORRECTS, PERSÉVÉREZ"],[10,"TRAVAIL À RENFORCER"],[8,"DOIT FOURNIR PLUS D'EFFORTS"],
-      [0,"DOIT SE RESSAISIR RAPIDEMENT"]]
-};
-function lookupAppreciation(table, tri, m){
+function suggestAppreciation(m){
   if(m==null) return "";
-  var t = table[tri] || table[1];
-  for(var i=0;i<t.length;i++){ if(m>=t[i][0]) return t[i][1]; }
-  return t[t.length-1][1];
+  if(m>=18) return "Excellent travail, félicitations";
+  if(m>=16) return "Résultats très satisfaisants, encouragements";
+  if(m>=14) return "Résultats satisfaisants";
+  if(m>=12) return "Résultats assez satisfaisants";
+  if(m>=10) return "Résultats passables, peut mieux faire";
+  return "Résultats insuffisants, doit fournir davantage d'efforts";
 }
-function suggestAppreciationMatiere(m, tri){ return lookupAppreciation(TABLE_APPRECIATION_MATIERE, tri, m); }
-function suggestAppreciationGlobale(m, tri){ return lookupAppreciation(TABLE_APPRECIATION_GLOBALE, tri, m); }
-function suggestDecisionConseil(m){ if(m==null) return ""; return m>=10 ? "ADMIS(E)" : "REDOUBLE"; }
 function appreciationTone(m){ if(m==null) return "muted"; if(m>=16) return "good"; if(m>=10) return "gold"; return "warn"; }
 
 function suggestConduite(heuresNonJustifiees){
@@ -2690,7 +2661,7 @@ function viewNotes(){
         + '<td><input type="number" min="0" max="20" step="0.25" class="mono" data-note-eleve="'+e.id+'" data-note-field="dev4" value="'+(entry.valeurs[3]??'')+'"'+dis+'></td>'
         + '<td class="tabnum" style="text-align:center">'+fmt(moy)+'</td>'
         + '<td style="text-align:center">'+(rang ? '<span class="pill pill-'+tone+'">'+rang+'</span>' : '—')+'</td>'
-        + '<td><input type="text" data-note-eleve="'+e.id+'" data-note-field="appreciation" value="'+esc(entry.appreciation)+'" placeholder="'+esc(suggestAppreciationMatiere(moy, tri)||'Appréciation')+'"'+dis+'></td>'
+        + '<td><input type="text" data-note-eleve="'+e.id+'" data-note-field="appreciation" value="'+esc(entry.appreciation)+'" placeholder="'+esc(suggestAppreciation(moy)||'Appréciation')+'"'+dis+'></td>'
       + '</tr>';
     }).join('');
   }
@@ -2848,7 +2819,7 @@ function imprimerListeNotes(classeId, matiereId){
       + '<td class="nom">'+esc((e.nom||'').toUpperCase())+' '+esc((e.prenom||'').toUpperCase())+'</td>'
       + '<td>'+esc(e.sexe||'—')+'</td>'
       + '<td class="date">'+esc(frDate(e.dateNaissance))+'</td>'
-      + '<td>NR</td>'
+      + '<td><b>N</b>R</td>'
       + '<td></td><td></td><td></td><td></td>'
       + '<td></td>'
     + '</tr>';
@@ -3293,7 +3264,7 @@ function renderAppelRegistre(classeId, eleves){
       + '<td style="text-align:left">'+esc((e.nom||'').toUpperCase())+' '+esc((e.prenom||'').toUpperCase())+'</td>'
       + '<td class="num">'+esc(e.sexe||'—')+'</td>'
       + '<td class="num tabnum">'+esc(frDate(e.dateNaissance))+'</td>'
-      + '<td class="num">NR</td>'
+      + '<td class="num"><b>N</b>R</td>'
       + blankCells9 + blankCells9
     + '</tr>';
   }
@@ -3647,7 +3618,7 @@ function renderSheet(e, classeId, tri){
       + '<td class="num tabnum">'+(rang||'—')+'</td>'
       + '<td class="num tabnum">'+fmt(moy)+'</td>'
       + '<td class="num tabnum">'+fmt(st.moyenneClasse)+'</td>'
-      + '<td>'+esc(entry.appreciation || suggestAppreciationMatiere(moy, tri))+'</td>'
+      + '<td>'+esc(entry.appreciation || suggestAppreciation(moy))+'</td>'
     + '</tr>';
   }).join('');
 
@@ -3691,9 +3662,9 @@ function renderSheet(e, classeId, tri){
       + '<div class="left">'
         + '<div class="ttl">Appréciation du conseil de classe</div>'
         + '<div class="cline"><span>Absences</span><input type="text" class="num tabnum" value="'+esc(absTexte)+'" readonly></div>'
-        + '<div class="cline" style="align-items:flex-start"><span>Appréciation globale</span><textarea rows="2" data-conseil-eleve="'+e.id+'" data-conseil-field="appreciationGlobale" placeholder="'+esc(suggestAppreciationGlobale(moyGen, tri))+'"'+dis+'>'+esc(conseil.appreciationGlobale)+'</textarea></div>'
+        + '<div class="cline" style="align-items:flex-start"><span>Appréciation globale</span><textarea rows="2" data-conseil-eleve="'+e.id+'" data-conseil-field="appreciationGlobale" placeholder="'+esc(suggestAppreciation(moyGen))+'"'+dis+'>'+esc(conseil.appreciationGlobale)+'</textarea></div>'
         + '<div class="cline"><span>Absences &amp; Conduite</span><input type="text" data-conseil-eleve="'+e.id+'" data-conseil-field="conduite" value="'+esc(conseil.conduite)+'" placeholder="'+esc(suggestConduite(heuresTri.nonJustifiees))+'"'+dis+'></div>'
-        + (tri===3 ? '<div class="cline"><span>Décision du conseil de classe</span><input type="text" data-conseil-eleve="'+e.id+'" data-conseil-field="decision" value="'+esc(conseil.decision)+'" placeholder="'+esc(suggestDecisionConseil(moyGen)||'Ex. Admis(e)')+'"'+dis+'></div>' : '')
+        + (tri===3 ? '<div class="cline"><span>Décision du conseil de classe</span><input type="text" data-conseil-eleve="'+e.id+'" data-conseil-field="decision" value="'+esc(conseil.decision)+'" placeholder="Ex. Admis(e)"'+dis+'></div>' : '')
       + '</div>'
       + '<div class="sig-col">'
         + '<div class="ttl" style="text-align:center">Signature &amp; cachet</div>'
