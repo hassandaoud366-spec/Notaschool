@@ -408,40 +408,49 @@ tr.row-absent{background:var(--warn-soft)}
 /* ---------- Bulletin sheet ---------- */
 .print-hint{display:flex; gap:10px; align-items:center; background:var(--accent-soft); color:var(--accent); border-radius:10px; padding:10px 14px; font-size:12.5px; margin-bottom:16px}
 .print-hint svg{width:16px; height:16px; flex:none}
-.sheet{background:var(--surface); border:1px solid var(--line); border-radius:4px; box-shadow:var(--shadow); padding:28px; margin-bottom:28px; max-width:900px}
-.sheet-head{display:grid; grid-template-columns:auto 1fr auto; gap:18px; align-items:start; border-bottom:2px solid var(--accent); padding-bottom:14px; margin-bottom:14px}
-.sheet-crest{width:54px; height:54px; border-radius:10px; object-fit:cover; border:1px solid var(--line)}
-.sheet-crest-ph{width:54px; height:54px; border-radius:10px; background:var(--accent-soft); color:var(--accent); display:flex; align-items:center; justify-content:center}
-.sheet-school .nom{font-family:"Fraunces",serif; font-weight:600; font-size:18px}
-.sheet-school .meta{font-size:11.5px; color:var(--ink-soft); line-height:1.6}
+/* Mise à l'échelle du bulletin pour tenir sur 1 page A4 : TOUT (polices, paddings,
+   marges, hauteurs de ligne, dimensions des tableaux) est exprimé en "em", relatif à la
+   taille de police posée ICI sur .sheet (14px = taille normale, identique à avant, donc
+   présentation inchangée par défaut). Avant impression, ajusterBulletinsPourImpression()
+   (voir plus bas, appelée sur l'évènement "beforeprint") mesure la hauteur réellement
+   nécessaire pour CHAQUE bulletin et réduit uniquement cette taille de police si besoin —
+   ce qui réduit alors proportionnellement tout le reste automatiquement, sans rien
+   supprimer et sans toucher aux bulletins qui tiennent déjà sur 1 page à taille normale. */
+.sheet{background:var(--surface); border:1px solid var(--line); border-radius:4px; box-shadow:var(--shadow); padding:2em; margin-bottom:28px; max-width:900px; font-size:14px}
+.sheet-head{display:grid; grid-template-columns:auto 1fr auto; gap:1.2857em; align-items:start; border-bottom:2px solid var(--accent); padding-bottom:1em; margin-bottom:1em}
+.sheet-crest{width:3.857em; height:3.857em; border-radius:10px; object-fit:cover; border:1px solid var(--line)}
+.sheet-crest-ph{width:3.857em; height:3.857em; border-radius:10px; background:var(--accent-soft); color:var(--accent); display:flex; align-items:center; justify-content:center}
+.sheet-school .nom{font-family:"Fraunces",serif; font-weight:600; font-size:1.2857em}
+.sheet-school .meta{font-size:0.8214em; color:var(--ink-soft); line-height:1.5}
 .sheet-doc{text-align:right; min-width:150px}
-.sheet-doc .titre{font-family:"Fraunces",serif; font-weight:600; font-size:15px; color:var(--accent)}
-.sheet-doc .date{font-size:11.5px; color:var(--ink-soft)}
-.sheet-id{display:grid; grid-template-columns:1fr auto; gap:16px; margin-bottom:16px}
-.sheet-id dl{display:grid; grid-template-columns:auto 1fr; gap:3px 10px; margin:0; font-size:12.5px}
+.sheet-doc .titre{font-family:"Fraunces",serif; font-weight:600; font-size:1.0714em; color:var(--accent)}
+.sheet-doc .date{font-size:0.8214em; color:var(--ink-soft)}
+.sheet-id{display:grid; grid-template-columns:1fr auto; gap:1.1429em; margin-bottom:1.1429em}
+.sheet-id dl{display:grid; grid-template-columns:auto 1fr; gap:0.2143em 0.7143em; margin:0; font-size:0.8929em}
 .sheet-id dt{color:var(--ink-soft)}
 .sheet-id dd{margin:0; font-weight:600}
-.sheet-id dd.nom-eleve{font-size:15px; font-family:"Fraunces",serif; font-weight:600}
-.sheet-photo{width:70px; height:88px; object-fit:cover; border-radius:50%}
-.sheet-photo-ph{width:70px; height:88px; border:1px dashed var(--line); border-radius:50%; display:flex; align-items:center; justify-content:center; color:var(--ink-soft)}
-.sheet table{min-width:0; font-size:12.5px}
-.sheet thead th{background:var(--accent-soft); color:var(--accent); border-bottom:1px solid var(--accent)}
+.sheet-id dd.nom-eleve{font-size:1.0714em; font-family:"Fraunces",serif; font-weight:600}
+.sheet-photo{width:5em; height:6.2857em; object-fit:cover; border-radius:50%}
+.sheet-photo-ph{width:5em; height:6.2857em; border:1px dashed var(--line); border-radius:50%; display:flex; align-items:center; justify-content:center; color:var(--ink-soft)}
+.sheet table{min-width:0; font-size:0.8929em}
+.sheet thead th{background:var(--accent-soft); color:var(--accent); border-bottom:1px solid var(--accent); padding:0.7143em 0.7857em; white-space:normal}
+.sheet tbody td{padding:0.6429em 0.7857em}
 .sheet td, .sheet th{border:1px solid var(--line)}
 .sheet tbody td.num, .sheet tfoot td.num{text-align:center}
 .sheet thead th.col-centre{text-align:center}
 .sheet tfoot td{font-weight:700; background:var(--gold-soft)}
-.sheet .matiere-nom{font-weight:700; text-transform:uppercase; font-size:11.5px}
-.sheet .ens-nom{color:var(--ink-soft); font-size:11.5px}
-.sheet-conseil{display:grid; grid-template-columns:1.4fr 1fr; gap:0; margin-top:16px; border:1px solid var(--line); border-radius:4px; overflow:hidden; font-size:12.5px}
-.sheet-conseil > div{padding:12px; display:flex; flex-direction:column}
+.sheet .matiere-nom{font-weight:700; text-transform:uppercase; font-size:0.8214em}
+.sheet .ens-nom{color:var(--ink-soft); font-size:0.8214em}
+.sheet-conseil{display:grid; grid-template-columns:1.4fr 1fr; gap:0; margin-top:1.1429em; border:1px solid var(--line); border-radius:4px; overflow:hidden; font-size:0.8929em}
+.sheet-conseil > div{padding:0.8571em; display:flex; flex-direction:column}
 .sheet-conseil .left{border-right:1px solid var(--line)}
-.sheet-conseil .ttl{font-weight:700; text-transform:uppercase; font-size:11px; letter-spacing:.03em; color:var(--ink-soft); border-bottom:1px solid var(--line); padding-bottom:7px; margin-bottom:7px}
+.sheet-conseil .ttl{font-weight:700; text-transform:uppercase; font-size:0.7857em; letter-spacing:.03em; color:var(--ink-soft); border-bottom:1px solid var(--line); padding-bottom:0.5em; margin-bottom:0.5em}
 .sheet-conseil .sig-col{justify-content:flex-start}
-.cline{display:flex; justify-content:space-between; gap:10px; padding:5px 0; border-top:1px solid var(--line)}
-.cline:first-of-type{border-top:none}
-.cline input, .cline textarea{border:1px solid var(--line); background:var(--bg); border-radius:6px; padding:4px 7px; font-size:12px; font-family:inherit; width:62%}
-.seal{width:72px; height:72px; border-radius:50%; border:2px solid var(--accent); color:var(--accent); display:flex; align-items:center; justify-content:center; text-align:center; font-size:9px; font-weight:700; text-transform:uppercase; letter-spacing:.02em; margin:0 auto 8px; opacity:.6; transform:rotate(-8deg)}
-.bilan-annuel{display:flex; gap:12px; flex-wrap:wrap; margin-top:16px}
+.sheet .cline{display:flex; justify-content:space-between; gap:0.7143em; padding:0.3571em 0; border-top:1px solid var(--line)}
+.sheet .cline:first-of-type{border-top:none}
+.sheet .cline input, .sheet .cline textarea{border:1px solid var(--line); background:var(--bg); border-radius:6px; padding:0.2857em 0.5em; font-size:0.8571em; font-family:inherit; width:62%}
+.sheet .seal{width:5.1429em; height:5.1429em; border-radius:50%; border:2px solid var(--accent); color:var(--accent); display:flex; align-items:center; justify-content:center; text-align:center; font-size:0.6429em; font-weight:700; text-transform:uppercase; letter-spacing:.02em; margin:0 auto 0.5714em; opacity:.6; transform:rotate(-8deg)}
+.bilan-annuel{display:flex; gap:0.8571em; flex-wrap:wrap; margin-top:1.1429em}
 .bilan-annuel .table-wrap{flex:1; min-width:180px}
 .bilan-annuel table{min-width:0}
 .bilan-annuel td:first-child{color:var(--ink-soft)}
@@ -505,6 +514,40 @@ tr.row-absent{background:var(--warn-soft)}
    de TOUTE la ligne (mesurée par printMesurerBlocs), faussant la pagination dynamique. */
 .appel-table tbody td{white-space:nowrap}
 .appel-table tbody td:nth-child(2){text-align:left}
+/* La case STATUT ("NR") débordait visuellement sur la case voisine : constaté sur un PDF
+   réellement imprimé (remarque directeur). Deux essais précédents ont été REJETÉS par le
+   directeur : (1) couper "N"/"R" sur deux lignes — refusé, il veut une seule ligne ; (2)
+   plafonner la police de cette seule cellule à 6pt — refusé aussi, il veut "NR" à LA MÊME
+   TAILLE que GENRE (pas une police réduite/plus petite et donc moins visible).
+   ATTENTION : une mesure Canvas (measureText) de "NR" et de la date, prise dans la page à
+   l'écran, s'est révélée TROP OPTIMISTE par rapport au vrai moteur d'impression PDF de
+   Chromium (page.pdf()) — l'écart mesure jusqu'à ~40% sur le texte de la date. Seule une
+   mesure sur un VRAI PDF généré puis rasterisé en image (pdftoppm) et inspecté pixel par
+   pixel donne un résultat fiable ; c'est cette méthode qui a servi ici, pas Canvas.
+   Résultat (PDF réel, police 10pt) : "15-03-2012" mesure ~20.9mm, "NR" ~4.7mm. Il n'y avait
+   PHYSIQUEMENT pas assez de place pour les deux textes à pleine taille dans le budget
+   Genre+DateNaiss+Statut (17.1% de 198mm) d'origine, même en déplaçant tout le curseur
+   possible de Date naiss vers Statut. Solution à trois volets, aucun ne touchant Genre, Noms
+   des élèves ni les 18 cases d'appel :
+   1) Colonne N° (3.6%→3.3%) : mesure réelle sur PDF du cas le plus large ("80", classe de
+      80 élèves) = 3.79mm de texte dans une colonne qui en offrait 4.93mm de utile — 1.1mm de
+      vraie marge constatée ; on en reprend seulement 0.3% (~0.6mm), laissant encore de la
+      marge réelle pour "80".
+   2) Colonne Date naiss (11.5%→11.4%) et Statut (2.8%→3.2%) : léger réajustement, la marge
+      récupérée sur N° allant presque entièrement à Statut qui en avait le plus besoin.
+   3) Padding horizontal réduit (1.1mm→0.7mm par côté) UNIQUEMENT sur les cellules Date
+      naiss et Statut (règle ci-dessous, en-tête et corps), pour gagner de la place sans
+      toucher au padding des autres colonnes.
+   Revérifié par PDF réel + rasterisation sur n=12/25/55/60/80 (dans le cas le plus
+   défavorable, police à pleine taille 10pt) : "15-03-2012" et "NR" tiennent chacun sur une
+   seule ligne, sans se chevaucher ni déborder sur la case voisine. "NR" suit --appel-pt
+   comme GENRE, à la même taille, sans aucun plafond. */
+.appel-table tbody td:nth-child(4), .appel-table tbody td:nth-child(5),
+.appel-table thead th:nth-child(4), .appel-table thead th:nth-child(5){padding-left:0.7mm; padding-right:0.7mm}
+/* Demande du directeur : seul le "N" de "NR" en gras (pas le "R") — voir la balise <b>
+   dans ligneHtml ci-dessous. Le gras rend le texte un peu plus large — revérifié par PDF
+   réel + rasterisation (pas juste à l'écran) que "NR" tient toujours sur une seule ligne,
+   dans sa case, sans déborder, même à pleine taille de police (10pt). */
 .appel-table tbody td, .appel-table tfoot td{min-width:16px}
 .appel-table tfoot td:first-child{text-align:left; font-weight:700; background:var(--gold-soft); white-space:nowrap}
 .appel-nb{font-size:11.5px; color:var(--ink-soft); margin-top:12px}
@@ -1428,15 +1471,44 @@ function moyenne(valeurs){ if(!valeurs || valeurs.length===0) return null; var p
 function round2(n){ return Math.round(n*100)/100; }
 function fmt(n){ return n==null ? "—" : round2(n).toFixed(2); }
 
-function suggestAppreciation(m){
+/* Appréciations automatiques par matière et appréciation globale du conseil,
+   barème demandé par le directeur (sur 20, borne basse incluse, un jeu de
+   formulations différent par trimestre). Tout est en MAJUSCULES par consigne
+   explicite. Rien ici ne touche aux notes, moyennes, rangs ni à leur calcul :
+   ces fonctions ne font QUE proposer un texte (affiché en "placeholder" ou en
+   repli si la case appréciation est vide), exactement comme le faisait déjà
+   l'ancienne fonction suggestAppreciation() qu'elles remplacent. */
+var TABLE_APPRECIATION_MATIERE = {
+  1: [[18,"EXCELLENT TRAVAIL, FÉLICITATIONS"],[16,"TRÈS BON TRAVAIL"],[14,"BON TRAVAIL"],
+      [12,"TRAVAIL SATISFAISANT"],[10,"PEUT MIEUX FAIRE"],[8,"TRAVAIL INSUFFISANT"],
+      [0,"TRAVAIL TRÈS INSUFFISANT"]],
+  2: [[18,"EXCELLENTS RÉSULTATS, BRAVO"],[16,"TRÈS BONS RÉSULTATS"],[14,"BONS RÉSULTATS"],
+      [12,"RÉSULTATS SATISFAISANTS"],[10,"RÉSULTATS MOYENS"],[8,"RÉSULTATS INSUFFISANTS"],
+      [0,"RÉSULTATS TRÈS FAIBLES"]],
+  3: [[18,"TRAVAIL REMARQUABLE, FÉLICITATIONS"],[16,"TRÈS BIEN, CONTINUEZ AINSI"],[14,"BIEN, CONTINUEZ VOS EFFORTS"],
+      [12,"ASSEZ BIEN, PERSÉVÉREZ"],[10,"DES EFFORTS À FOURNIR"],[8,"DOIT TRAVAILLER DAVANTAGE"],
+      [0,"DOIT SE RESSAISIR"]]
+};
+var TABLE_APPRECIATION_GLOBALE = {
+  1: [[18,"FÉLICITATIONS DU CONSEIL DE CLASSE"],[16,"TABLEAU D'HONNEUR"],[14,"COMPLIMENTS DU CONSEIL"],
+      [12,"ENCOURAGEMENTS DU CONSEIL"],[10,"RÉSULTATS MOYENS, PEUT MIEUX FAIRE"],[8,"AVERTISSEMENT TRAVAIL"],
+      [0,"BLÂME"]],
+  2: [[18,"EXCELLENTS RÉSULTATS, FÉLICITATIONS"],[16,"TRÈS BONS RÉSULTATS, TABLEAU D'HONNEUR"],[14,"BONS RÉSULTATS, COMPLIMENTS"],
+      [12,"ENSEMBLE SATISFAISANT, ENCOURAGEMENTS"],[10,"ENSEMBLE PASSABLE, DES EFFORTS À FOURNIR"],[8,"RÉSULTATS INSUFFISANTS, AVERTISSEMENT"],
+      [0,"RÉSULTATS TRÈS INSUFFISANTS, BLÂME"]],
+  3: [[18,"ÉLÈVE BRILLANT(E), FÉLICITATIONS"],[16,"TRÈS BON ENSEMBLE, CONTINUEZ AINSI"],[14,"BON ENSEMBLE, CONTINUEZ VOS EFFORTS"],
+      [12,"RÉSULTATS CORRECTS, PERSÉVÉREZ"],[10,"TRAVAIL À RENFORCER"],[8,"DOIT FOURNIR PLUS D'EFFORTS"],
+      [0,"DOIT SE RESSAISIR RAPIDEMENT"]]
+};
+function lookupAppreciation(table, tri, m){
   if(m==null) return "";
-  if(m>=18) return "Excellent travail, félicitations";
-  if(m>=16) return "Résultats très satisfaisants, encouragements";
-  if(m>=14) return "Résultats satisfaisants";
-  if(m>=12) return "Résultats assez satisfaisants";
-  if(m>=10) return "Résultats passables, peut mieux faire";
-  return "Résultats insuffisants, doit fournir davantage d'efforts";
+  var t = table[tri] || table[1];
+  for(var i=0;i<t.length;i++){ if(m>=t[i][0]) return t[i][1]; }
+  return t[t.length-1][1];
 }
+function suggestAppreciationMatiere(m, tri){ return lookupAppreciation(TABLE_APPRECIATION_MATIERE, tri, m); }
+function suggestAppreciationGlobale(m, tri){ return lookupAppreciation(TABLE_APPRECIATION_GLOBALE, tri, m); }
+function suggestDecisionConseil(m){ if(m==null) return ""; return m>=10 ? "ADMIS(E)" : "REDOUBLE"; }
 function appreciationTone(m){ if(m==null) return "muted"; if(m>=16) return "good"; if(m>=10) return "gold"; return "warn"; }
 
 function suggestConduite(heuresNonJustifiees){
@@ -2618,7 +2690,7 @@ function viewNotes(){
         + '<td><input type="number" min="0" max="20" step="0.25" class="mono" data-note-eleve="'+e.id+'" data-note-field="dev4" value="'+(entry.valeurs[3]??'')+'"'+dis+'></td>'
         + '<td class="tabnum" style="text-align:center">'+fmt(moy)+'</td>'
         + '<td style="text-align:center">'+(rang ? '<span class="pill pill-'+tone+'">'+rang+'</span>' : '—')+'</td>'
-        + '<td><input type="text" data-note-eleve="'+e.id+'" data-note-field="appreciation" value="'+esc(entry.appreciation)+'" placeholder="'+esc(suggestAppreciation(moy)||'Appréciation')+'"'+dis+'></td>'
+        + '<td><input type="text" data-note-eleve="'+e.id+'" data-note-field="appreciation" value="'+esc(entry.appreciation)+'" placeholder="'+esc(suggestAppreciationMatiere(moy, tri)||'Appréciation')+'"'+dis+'></td>'
       + '</tr>';
     }).join('');
   }
@@ -3162,6 +3234,13 @@ function renderAppelRegistre(classeId, eleves){
      (~5.5mm) laisse une bonne marge pour CE seul caractère, même si le mot entier
      ("GENRE", "STATUT") ne tiendrait plus du tout sur une ligne horizontale dans une
      colonne aussi étroite.
+     Statut (2.8%→3.2%), Date naiss (11.5%→11.4%) et N° (3.6%→3.3%) : voir le commentaire
+     détaillé sur la règle CSS ".appel-table tbody td:nth-child(5)" plus bas — "NR" débordait
+     à 2.8% à pleine taille de police, vérifié sur un vrai PDF rasterisé (pas seulement une
+     mesure Canvas, qui s'est montrée trop optimiste face au vrai moteur d'impression). On a
+     repris un peu de largeur à N° (qui a de la vraie marge même pour "80") et un tout petit
+     peu à Date naiss, plus un padding horizontal réduit (voir plus bas) rien que pour ces
+     deux cellules — sans toucher Genre/Nom/cases d'appel.
      Les 18 colonnes horaires (cases où l'enseignant écrit à la main présent/absent) sont
      à 2.564% chacune (~5.08mm à 198mm de large, demande explicite du directeur — d'abord
      3.37mm à l'origine, puis 3.9mm). Un essai à 6mm (3.030%, en reprenant de l'espace sur
@@ -3182,7 +3261,7 @@ function renderAppelRegistre(classeId, eleves){
      de police de CETTE seule ligne d'en-tête (Matin/Après-midi) à 8pt maximum, sans
      toucher à la taille du reste du tableau ni à la largeur des colonnes. */
   var colgroupHtml = '<colgroup>'
-      + '<col style="width:3.6%"><col style="width:33.14%"><col style="width:2.8%"><col style="width:11.5%"><col style="width:2.8%">'
+      + '<col style="width:3.3%"><col style="width:33.14%"><col style="width:2.8%"><col style="width:11.4%"><col style="width:3.2%">'
       + '<col style="width:2.564%"><col style="width:2.564%"><col style="width:2.564%"><col style="width:2.564%"><col style="width:2.564%">'
       + '<col style="width:2.564%"><col style="width:2.564%"><col style="width:2.564%"><col style="width:2.564%">'
       + '<col style="width:2.564%"><col style="width:2.564%"><col style="width:2.564%"><col style="width:2.564%"><col style="width:2.564%">'
@@ -3568,7 +3647,7 @@ function renderSheet(e, classeId, tri){
       + '<td class="num tabnum">'+(rang||'—')+'</td>'
       + '<td class="num tabnum">'+fmt(moy)+'</td>'
       + '<td class="num tabnum">'+fmt(st.moyenneClasse)+'</td>'
-      + '<td>'+esc(entry.appreciation || suggestAppreciation(moy))+'</td>'
+      + '<td>'+esc(entry.appreciation || suggestAppreciationMatiere(moy, tri))+'</td>'
     + '</tr>';
   }).join('');
 
@@ -3612,9 +3691,9 @@ function renderSheet(e, classeId, tri){
       + '<div class="left">'
         + '<div class="ttl">Appréciation du conseil de classe</div>'
         + '<div class="cline"><span>Absences</span><input type="text" class="num tabnum" value="'+esc(absTexte)+'" readonly></div>'
-        + '<div class="cline" style="align-items:flex-start"><span>Appréciation globale</span><textarea rows="2" data-conseil-eleve="'+e.id+'" data-conseil-field="appreciationGlobale" placeholder="'+esc(suggestAppreciation(moyGen))+'"'+dis+'>'+esc(conseil.appreciationGlobale)+'</textarea></div>'
+        + '<div class="cline" style="align-items:flex-start"><span>Appréciation globale</span><textarea rows="2" data-conseil-eleve="'+e.id+'" data-conseil-field="appreciationGlobale" placeholder="'+esc(suggestAppreciationGlobale(moyGen, tri))+'"'+dis+'>'+esc(conseil.appreciationGlobale)+'</textarea></div>'
         + '<div class="cline"><span>Absences &amp; Conduite</span><input type="text" data-conseil-eleve="'+e.id+'" data-conseil-field="conduite" value="'+esc(conseil.conduite)+'" placeholder="'+esc(suggestConduite(heuresTri.nonJustifiees))+'"'+dis+'></div>'
-        + (tri===3 ? '<div class="cline"><span>Décision du conseil de classe</span><input type="text" data-conseil-eleve="'+e.id+'" data-conseil-field="decision" value="'+esc(conseil.decision)+'" placeholder="Ex. Admis(e)"'+dis+'></div>' : '')
+        + (tri===3 ? '<div class="cline"><span>Décision du conseil de classe</span><input type="text" data-conseil-eleve="'+e.id+'" data-conseil-field="decision" value="'+esc(conseil.decision)+'" placeholder="'+esc(suggestDecisionConseil(moyGen)||'Ex. Admis(e)')+'"'+dis+'></div>' : '')
       + '</div>'
       + '<div class="sig-col">'
         + '<div class="ttl" style="text-align:center">Signature &amp; cachet</div>'
@@ -3753,10 +3832,68 @@ window.addEventListener('beforeprint', function(){
   if(ui.tab==='bulletins' && !canTelechargerBulletin()){
     document.body.classList.add('print-blocked-bulletin');
   }
+  if(ui.tab==='bulletins'){ ajusterBulletinsPourImpression(); }
 });
 window.addEventListener('afterprint', function(){
   document.body.classList.remove('print-blocked-bulletin');
+  document.querySelectorAll('.sheet[data-bull-ajuste]').forEach(function(s){
+    s.style.fontSize = ''; s.style.width = ''; s.style.maxWidth = ''; s.removeAttribute('data-bull-ajuste');
+  });
 });
+
+/* Fait tenir CHAQUE bulletin ("ement .sheet") sur une seule page A4 à l'impression,
+   quel que soit le nombre de matières de l'élève — demande explicite du directeur.
+   Principe (même logique que le registre d'appel / la liste de notes : une vraie mesure,
+   pas un palier fixe) : .sheet{font-size:14px} est la taille NORMALE, et tout le contenu
+   du bulletin (polices, paddings, marges, hauteurs de ligne, tableaux) est exprimé en
+   "em" relatif à cette taille (voir la CSS ".sheet" plus haut) — réduire cette seule
+   valeur réduit donc TOUT le bulletin proportionnellement, sans rien supprimer. On
+   mesure la hauteur RÉELLEMENT nécessaire à chaque taille (scrollHeight du DOM, pas une
+   estimation) et on descend par pas de 0.2px depuis 14px jusqu'à ce que ça tienne dans la
+   hauteur imprimable d'une page A4 (297mm - 2×12mm de marge, cf. "@page{margin:12mm}"),
+   avec un plancher de 10px (≈71% de la taille normale) pour rester lisible — pas de
+   réduction "excessive". Chaque bulletin (en mode "Toute la classe") est mesuré et ajusté
+   INDÉPENDAMMENT des autres : un élève avec peu de matières garde sa taille normale même
+   si un autre élève de la même classe, avec plus de matières, doit être réduit.
+
+   Piège trouvé et corrigé par des tests RÉELS (page.pdf() + pdfinfo, jamais une simple
+   mesure DOM à l'écran) : au moment où 'beforeprint' se déclenche, .sheet a encore sa
+   largeur ÉCRAN (jusqu'à 900px, cf. ".sheet{max-width:900px}") alors qu'à l'impression,
+   la règle "@media print{.sheet{max-width:none}}" s'applique et .sheet prend la largeur
+   imprimable réelle, plus étroite (A4 186mm de contenu ≈ 703px). Mesurer scrollHeight à
+   900px de large sous-estime donc systématiquement la hauteur réelle à l'impression (le
+   même texte, dans une colonne plus étroite, fait plus de lignes). Deux bulletins avec
+   le même nombre de matières mais des notes différentes peuvent ainsi donner la même
+   scrollHeight "écran" (900px) mais un nombre de pages différent à l'impression, car le
+   retour à la ligne de l'appréciation par matière (texte variable selon la moyenne) ne
+   se produit pas aux mêmes endroits une fois la colonne resserrée. La correction : on
+   force .sheet à sa largeur imprimée réelle AVANT de mesurer, pour que scrollHeight
+   reflète fidèlement la mise en page qui sera réellement imprimée.                     */
+function ajusterBulletinsPourImpression(){
+  var sheets = document.querySelectorAll('.sheet');
+  if(!sheets.length) return;
+  var probe = document.createElement('div');
+  probe.style.cssText = 'position:absolute; visibility:hidden; width:100mm; height:0; left:-9999px';
+  document.body.appendChild(probe);
+  var pxParMM = probe.offsetWidth / 100;
+  document.body.removeChild(probe);
+  var MARGE_MM = 12, PLANCHER_PX = 10, NORMAL_PX = 14;
+  var hauteurDispoPx = (297 - 2*MARGE_MM) * pxParMM;
+  var largeurImprimeePx = (210 - 2*MARGE_MM) * pxParMM;
+  sheets.forEach(function(sheet){
+    sheet.style.maxWidth = 'none';
+    sheet.style.width = largeurImprimeePx+'px';
+    sheet.style.fontSize = NORMAL_PX+'px';
+    sheet.setAttribute('data-bull-ajuste', '1');
+    if(sheet.scrollHeight <= hauteurDispoPx) return; // tient déjà normalement : on ne touche à rien
+    var taille = NORMAL_PX;
+    for(taille = NORMAL_PX - 0.2; taille >= PLANCHER_PX; taille -= 0.2){
+      sheet.style.fontSize = taille.toFixed(1)+'px';
+      if(sheet.scrollHeight <= hauteurDispoPx) break;
+    }
+    if(taille < PLANCHER_PX){ sheet.style.fontSize = PLANCHER_PX+'px'; }
+  });
+}
 
 document.addEventListener('click', function(e){
   var t = e.target.closest('[data-action], [data-tab], [data-term]');
