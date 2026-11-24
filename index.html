@@ -440,11 +440,22 @@ tr.row-absent{background:var(--warn-soft)}
    tenir sur une seule ligne, comme sur le modèle de bulletin fourni en exemple (Lycée
    Hodan). Sans règle dédiée, la colonne récupérait une largeur automatique parfois trop
    étroite pour le texte généré par les tableaux d'appréciation. table-layout:fixed +
-   colgroup (défini ci-dessus, côté JS) lui réserve 43% de la largeur du tableau — large
-   assez pour le plus long texte prévu — et white-space:nowrap empêche tout retour à la
-   ligne. */
+   colgroup (défini ci-dessus, côté JS) lui réserve 49% de la largeur du tableau — large
+   assez pour le plus long texte prévu (le barème officiel du directeur monte à 41
+   caractères, ex. "RÉSULTATS INSUFFISANTS, LACUNES À COMBLER", vérifié réellement sur PDF
+   rastérisé à 4 matières, cas le plus serré car police la plus grande) — et white-space:
+   nowrap empêche tout retour à la ligne. Les 49% sont récupérés sur les colonnes
+   numériques (Nb notes, Rang, Moy.) volontairement larges auparavant alors que leur
+   contenu est court ; aucune autre colonne, ni la structure, n'a changé. */
 .bulletin-matieres{table-layout:fixed}
 .bulletin-matieres th:last-child, .bulletin-matieres td:last-child{white-space:nowrap}
+/* Les colonnes numériques (Nb notes, Rang, Moy.) sont étroites ; le padding horizontal
+   par défaut des en-têtes (0.7857em de chaque côté) y mangeait presque toute la largeur
+   et faisait déborder des mots comme "NOTES"/"RANG" hors de leur case. On resserre donc
+   le padding horizontal et on réduit légèrement la police des en-têtes du tableau des
+   matières pour que chaque mot tienne entièrement dans sa case — sans toucher aux
+   largeurs de colonnes (l'appréciation reste sur une seule ligne). */
+.bulletin-matieres thead th{padding-left:0.3em; padding-right:0.3em; font-size:0.84em; letter-spacing:0}
 .sheet td, .sheet th{border:1px solid var(--line)}
 .sheet tbody td.num, .sheet tfoot td.num{text-align:center}
 .sheet thead th.col-centre{text-align:center}
@@ -1520,26 +1531,26 @@ function fmt(n){ return n==null ? "—" : round2(n).toFixed(2); }
    repli si la case appréciation est vide), exactement comme le faisait déjà
    l'ancienne fonction suggestAppreciation() qu'elles remplacent. */
 var TABLE_APPRECIATION_MATIERE = {
-  1: [[18,"EXCELLENT TRAVAIL, FÉLICITATIONS"],[16,"TRÈS BON TRAVAIL"],[14,"BON TRAVAIL"],
-      [12,"TRAVAIL SATISFAISANT"],[10,"PEUT MIEUX FAIRE"],[8,"TRAVAIL INSUFFISANT"],
+  1: [[18,"EXCELLENT TRAVAIL, FÉLICITATIONS"],[16,"TRÈS BON TRAVAIL, CONTINUEZ AINSI"],[14,"BON TRAVAIL, PEUT ENCORE PROGRESSER"],
+      [12,"TRAVAIL SATISFAISANT, PERSÉVÉREZ"],[10,"RÉSULTATS JUSTES, PEUT MIEUX FAIRE"],[8,"TRAVAIL INSUFFISANT, DOIT S'INVESTIR"],
       [0,"TRAVAIL TRÈS INSUFFISANT"]],
-  2: [[18,"EXCELLENTS RÉSULTATS, BRAVO"],[16,"TRÈS BONS RÉSULTATS"],[14,"BONS RÉSULTATS"],
-      [12,"RÉSULTATS SATISFAISANTS"],[10,"RÉSULTATS MOYENS"],[8,"RÉSULTATS INSUFFISANTS"],
-      [0,"RÉSULTATS TRÈS FAIBLES"]],
-  3: [[18,"TRAVAIL REMARQUABLE, FÉLICITATIONS"],[16,"TRÈS BIEN, CONTINUEZ AINSI"],[14,"BIEN, CONTINUEZ VOS EFFORTS"],
-      [12,"ASSEZ BIEN, PERSÉVÉREZ"],[10,"DES EFFORTS À FOURNIR"],[8,"DOIT TRAVAILLER DAVANTAGE"],
-      [0,"DOIT SE RESSAISIR"]]
+  2: [[18,"RÉSULTATS EXCELLENTS, BRAVO"],[16,"TRÈS BONS RÉSULTATS, TRAVAIL SÉRIEUX"],[14,"BONS RÉSULTATS, CONTINUEZ VOS EFFORTS"],
+      [12,"RÉSULTATS ASSEZ BONS, À CONSOLIDER"],[10,"TRAVAIL MOYEN, PLUS DE RÉGULARITÉ"],[8,"RÉSULTATS INSUFFISANTS, LACUNES À COMBLER"],
+      [0,"RÉSULTATS TRÈS FAIBLES, DOIT SE RESSAISIR"]],
+  3: [[18,"TRAVAIL REMARQUABLE, FÉLICITATIONS"],[16,"TRÈS BON TRIMESTRE, BRAVO"],[14,"BON TRAVAIL, ENSEMBLE SOLIDE"],
+      [12,"ASSEZ BIEN, EFFORTS À POURSUIVRE"],[10,"RÉSULTATS FRAGILES, EFFORTS NÉCESSAIRES"],[8,"NIVEAU INSUFFISANT, TRAVAIL À RENFORCER"],
+      [0,"GRANDES DIFFICULTÉS, SOUTIEN NÉCESSAIRE"]]
 };
 var TABLE_APPRECIATION_GLOBALE = {
-  1: [[18,"FÉLICITATIONS DU CONSEIL DE CLASSE"],[16,"TABLEAU D'HONNEUR"],[14,"COMPLIMENTS DU CONSEIL"],
-      [12,"ENCOURAGEMENTS DU CONSEIL"],[10,"RÉSULTATS MOYENS, PEUT MIEUX FAIRE"],[8,"AVERTISSEMENT TRAVAIL"],
-      [0,"BLÂME"]],
-  2: [[18,"EXCELLENTS RÉSULTATS, FÉLICITATIONS"],[16,"TRÈS BONS RÉSULTATS, TABLEAU D'HONNEUR"],[14,"BONS RÉSULTATS, COMPLIMENTS"],
-      [12,"ENSEMBLE SATISFAISANT, ENCOURAGEMENTS"],[10,"ENSEMBLE PASSABLE, DES EFFORTS À FOURNIR"],[8,"RÉSULTATS INSUFFISANTS, AVERTISSEMENT"],
-      [0,"RÉSULTATS TRÈS INSUFFISANTS, BLÂME"]],
-  3: [[18,"ÉLÈVE BRILLANT(E), FÉLICITATIONS"],[16,"TRÈS BON ENSEMBLE, CONTINUEZ AINSI"],[14,"BON ENSEMBLE, CONTINUEZ VOS EFFORTS"],
-      [12,"RÉSULTATS CORRECTS, PERSÉVÉREZ"],[10,"TRAVAIL À RENFORCER"],[8,"DOIT FOURNIR PLUS D'EFFORTS"],
-      [0,"DOIT SE RESSAISIR RAPIDEMENT"]]
+  1: [[18,"EXCELLENT TRIMESTRE, FÉLICITATIONS DU CONSEIL"],[16,"TRÈS BON TRIMESTRE, TABLEAU D'HONNEUR"],[14,"BON TRIMESTRE, COMPLIMENTS DU CONSEIL"],
+      [12,"TRIMESTRE SATISFAISANT, ENCOURAGEMENTS"],[10,"TRIMESTRE MOYEN, PEUT MIEUX FAIRE"],[8,"TRIMESTRE INSUFFISANT, AVERTISSEMENT TRAVAIL"],
+      [0,"TRIMESTRE TRÈS INSUFFISANT, BLÂME"]],
+  2: [[18,"RÉSULTATS BRILLANTS, FÉLICITATIONS"],[16,"TRÈS BONS RÉSULTATS, TABLEAU D'HONNEUR"],[14,"BONS RÉSULTATS, COMPLIMENTS"],
+      [12,"RÉSULTATS ASSEZ BONS, ENCOURAGEMENTS"],[10,"RÉSULTATS JUSTES, PLUS D'EFFORTS ATTENDUS"],[8,"RÉSULTATS INSUFFISANTS, AVERTISSEMENT"],
+      [0,"RÉSULTATS TRÈS FAIBLES, BLÂME DU CONSEIL"]],
+  3: [[18,"ÉLÈVE EXEMPLAIRE, FÉLICITATIONS DU CONSEIL"],[16,"TRAVAIL SÉRIEUX ET RÉGULIER, TABLEAU D'HONNEUR"],[14,"ENSEMBLE SOLIDE, COMPLIMENTS DU CONSEIL"],
+      [12,"EFFORTS APPRÉCIÉS, ENCOURAGEMENTS DU CONSEIL"],[10,"ENSEMBLE FRAGILE, TRAVAIL À RENFORCER"],[8,"NIVEAU INSUFFISANT, MISE EN GARDE DU CONSEIL"],
+      [0,"GRANDES DIFFICULTÉS, SURSAUT INDISPENSABLE"]]
 };
 function lookupAppreciation(table, tri, m){
   if(m==null) return "";
@@ -3788,7 +3799,7 @@ function renderSheet(e, classeId, tri){
     + '</div>'
     + (mats.length
       ? '<div class="table-wrap"><table class="bulletin-matieres">'
-        + '<colgroup><col style="width:19%"><col style="width:8%"><col style="width:8%"><col style="width:11%"><col style="width:11%"><col style="width:43%"></colgroup>'
+        + '<colgroup><col style="width:19%"><col style="width:7%"><col style="width:7%"><col style="width:9%"><col style="width:9%"><col style="width:49%"></colgroup>'
         + '<thead><tr><th>Matière</th><th>Nb notes</th><th class="col-centre">Rang</th><th class="col-centre">Moy. élève</th><th class="col-centre">Moy. classe</th><th>Appréciation</th></tr></thead>'
         + '<tbody>'+rows+'</tbody>'
         + '<tfoot><tr><td colspan="2">Moyenne générale</td><td class="num tabnum">'+(rangGen?ordinal(rangGen):'—')+'</td><td class="num tabnum">'+fmt(moyGen)+'</td><td class="num tabnum">'+fmt(gen.moyenneClasse)+'</td><td></td></tr></tfoot>'
