@@ -1563,12 +1563,26 @@ function suggestAppreciationGlobale(m, tri){ return lookupAppreciation(TABLE_APP
 function suggestDecisionConseil(m){ if(m==null) return ""; return m>=10 ? "ADMIS(E)" : "REDOUBLE"; }
 function appreciationTone(m){ if(m==null) return "muted"; if(m>=16) return "good"; if(m>=10) return "gold"; return "warn"; }
 
-function suggestConduite(heuresNonJustifiees){
+/* Absences & conduite : barème demandé par le directeur, selon le nombre d'heures
+   d'absence NON justifiées du trimestre (bornes incluses : 0 / 1-5 / 6-10 / 11-20 / >20),
+   un jeu de formulations différent par trimestre, tout en MAJUSCULES. Comme les autres
+   tables d'appréciation, ceci ne fait QUE proposer un texte (placeholder / repli si la
+   case est vide) : rien ici ne touche au calcul des heures, des notes ni des moyennes.
+   Chaque ligne = [borne haute incluse, texte] ; la dernière (Infinity) couvre « plus de
+   20 heures ». */
+var TABLE_CONDUITE = {
+  1: [[0,"ASSIDUITÉ PARFAITE, CONDUITE EXEMPLAIRE"],[5,"BONNE ASSIDUITÉ, BONNE CONDUITE"],[10,"ABSENCES À SURVEILLER"],
+      [20,"ABSENCES NOMBREUSES, ATTENTION"],[Infinity,"ABSENTÉISME GRAVE, AVERTISSEMENT"]],
+  2: [[0,"AUCUNE ABSENCE, TRÈS BONNE CONDUITE"],[5,"ASSIDUITÉ SATISFAISANTE, CONDUITE CORRECTE"],[10,"ASSIDUITÉ À AMÉLIORER"],
+      [20,"ABSENTÉISME PRÉJUDICIABLE AUX RÉSULTATS"],[Infinity,"ABSENCES INACCEPTABLES, AVERTISSEMENT"]],
+  3: [[0,"ÉLÈVE ASSIDU(E) ET EXEMPLAIRE"],[5,"QUELQUES ABSENCES, BONNE CONDUITE"],[10,"ABSENCES TROP FRÉQUENTES"],
+      [20,"ASSIDUITÉ INSUFFISANTE, MISE EN GARDE"],[Infinity,"ABSENTÉISME GRAVE, CONVOCATION DES PARENTS"]]
+};
+function suggestConduite(heuresNonJustifiees, tri){
   var h = heuresNonJustifiees||0;
-  if(h<=0) return "Aucune absence à signaler";
-  if(h<=5) return "Quelques absences, assiduité à surveiller";
-  if(h<=15) return "Attention au nombre d'absences";
-  return "Absences répétées, pénalisant la progression de l'élève";
+  var t = TABLE_CONDUITE[tri] || TABLE_CONDUITE[1];
+  for(var i=0;i<t.length;i++){ if(h<=t[i][0]) return t[i][1]; }
+  return t[t.length-1][1];
 }
 
 function computeRanks(items){
@@ -3811,7 +3825,7 @@ function renderSheet(e, classeId, tri){
         + '<div class="ttl">Appréciation du conseil de classe</div>'
         + '<div class="cline"><span>Absences</span><input type="text" class="num tabnum" value="'+esc(absTexte)+'" readonly></div>'
         + '<div class="cline" style="align-items:flex-start"><span>Appréciation globale</span><textarea rows="2" data-conseil-eleve="'+e.id+'" data-conseil-field="appreciationGlobale" placeholder="'+esc(suggestAppreciationGlobale(moyGen, tri))+'"'+dis+'>'+esc(conseil.appreciationGlobale)+'</textarea></div>'
-        + '<div class="cline"><span>Absences &amp; Conduite</span><input type="text" data-conseil-eleve="'+e.id+'" data-conseil-field="conduite" value="'+esc(conseil.conduite)+'" placeholder="'+esc(suggestConduite(heuresTri.nonJustifiees))+'"'+dis+'></div>'
+        + '<div class="cline" style="align-items:flex-start"><span>Absences &amp; Conduite</span><textarea rows="2" data-conseil-eleve="'+e.id+'" data-conseil-field="conduite" placeholder="'+esc(suggestConduite(heuresTri.nonJustifiees, tri))+'"'+dis+'>'+esc(conseil.conduite)+'</textarea></div>'
         + (tri===3 ? '<div class="cline"><span>Décision du conseil de classe</span><input type="text" data-conseil-eleve="'+e.id+'" data-conseil-field="decision" value="'+esc(conseil.decision)+'" placeholder="'+esc(suggestDecisionConseil(moyGen)||'Ex. Admis(e)')+'"'+dis+'></div>' : '')
       + '</div>'
       + '<div class="sig-col">'
